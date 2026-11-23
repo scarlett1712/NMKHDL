@@ -1,10 +1,10 @@
 """
 Module: cleaner.py
-Giai đoạn B: Làm sạch dữ liệu & Phân tích đơn biến.
-- Task B1: Xử lý giá trị khuyết (Missing values) với quy tắc Median & Group-mean.
-- Task B2: Xử lý ngoại lai (Outliers) bằng dải phân vị 1.5 * IQR.
-- Task B3: Chuẩn hóa dữ liệu (Min-Max Scaling, Z-Score Standardization).
-- Task B4: Thống kê mô tả đơn biến (Mean, Median, Mode, Variance, Std, Skewness, Kurtosis).
+Giai đoạn B: Làm sạch dữ liệu & Phân tích đơn biến (Data Cleaning & Univariate Analysis).
+- Task B1: Phát hiện và xử lý giá trị khuyết (Missing values) với Group-median.
+- Task B2: Phát hiện và xử lý ngoại lai (Outliers) bằng dải phân vị 1.5 * IQR trên tập Train.
+- Task B3: Chuẩn hóa dữ liệu đầy đủ: Min-Max Scaling & Z-Score Standardization.
+- Task B4: Thống kê mô tả đơn biến biến mục tiêu delay_minutes (Mean, Median, Mode, Variance, Std, Skewness, Kurtosis).
 """
 
 import os
@@ -17,7 +17,7 @@ class DataCleaner:
     def __init__(self, data_path: str = "data/processed/integrated_flight_weather.csv"):
         self.data_path = data_path
         self.df = pd.read_csv(data_path)
-        self.df['dep_time'] = pd.to_datetime(self.df['dep_time'])
+        self.df['dep_timestamp'] = pd.to_datetime(self.df['dep_timestamp'])
 
     def check_missing_values(self) -> pd.DataFrame:
         """Thống kê tỷ lệ khuyết dữ liệu (Task B1)."""
@@ -29,116 +29,120 @@ class DataCleaner:
         })
         return missing_df
 
-    def handle_missing_values(self) -> pd.DataFrame:
+    def handle_missing_values(self, train_medians: Dict[str, Any] = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """
-        Xử lý giá trị khuyết theo các chiến lược phù hợp từng thuộc tính:
-        - Nhiệt độ, gió, mưa: Điền median theo sân bay.
-        - Số lượng hành khách: Điền trung vị.
+        Xử lý giá trị khuyết (Task B1) trên dữ liệu quan trắc thật:
+        - Các giờ khuyết trạm khí tượng được điền theo median của từng sân bay và từng tháng.
+        - air_time khuyết được điền theo median của từng chặng bay (origin -> dest).
         """
         df = self.df.copy()
-        
-        # Nếu có giá trị khuyết ở các biến thời tiết, điền median theo từng sân bay xuất phát
-        if 'origin_temp_c' in df.columns:
-            df['origin_temp_c'] = df.groupby('origin')['origin_temp_c'].transform(lambda x: x.fillna(x.median()))
-            df['origin_rain_mm'] = df['origin_rain_mm'].fillna(0.0)
-            df['origin_wind_kmh'] = df.groupby('origin')['origin_wind_kmh'].transform(lambda x: x.fillna(x.median()))
-            df['origin_gusts_kmh'] = df.groupby('origin')['origin_gusts_kmh'].transform(lambda x: x.fillna(x.median()))
-            df['origin_visibility_km'] = df['origin_visibility_km'].fillna(10.0)
-            df['origin_weather'] = df['origin_weather'].fillna('Clear')
-            
-        if 'passenger_count' in df.columns:
-            df['passenger_count'] = df['passenger_count'].fillna(df['passenger_count'].median())
-            
-        self.df = df
-        return df
+        if train_medians is None:
+            train_medians = {
+                'origin_temp_c': float(df['origin_temp_c'].median() if pd.notna(df['origin_temp_c'].median()) else 15.0),
+                'origin_wind_kmh': float(df['origin_wind_kmh'].median() if pd.notna(df['origin_wind_kmh'].median()) else 15.0),
+                'origin_gusts_kmh': float(df['origin_gusts_kmh'].median() if pd.notna(df['origin_gusts_kmh'].median()) else 20.0),
+                'origin_rain_mm': 0.0,
+                'origin_visibility_km': 16.0,
+                'humid': float(df['humid'].median() if 'humid' in df.columns and pd.notna(df['humid'].median()) else 60.0),
+                'pressure': float(df['pressure'].median() if 'pressure' in df.columns and pd.notna(df['pressure'].median()) else 1015.0),
+                'air_time': float(df['air_time'].median() if pd.notna(df['air_time'].median()) else 150.0)
+            }
 
-    def handle_outliers_iqr(self, col: str = 'delay_minutes', clip: bool = True) -> Tuple[pd.DataFrame, Dict[str, float]]:
-        """
-        Task B2: Phát hiện và xử lý ngoại lai bằng quy tắc 1.5 * IQR.
-        - Đối với số phút trễ: Các chuyến bay trễ cực đoan (> 300 phút = 5 tiếng do sự cố kỹ thuật hiếm gặp)
-          được cắt tỉa hoặc nén về biên trên (Winsorization/Clipping) để không làm lệch mô hình hồi quy.
-        """
-        df = self.df.copy()
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
+        # Điền các cột khí tượng
+        for col in ['origin_temp_c', 'origin_wind_kmh', 'origin_gusts_kmh', 'humid', 'pressure']:
+            if col in df.columns:
+                df[col] = df.groupby(['origin', 'month'])[col].transform(lambda x: x.fillna(x.median()))
+                df[col] = df[col].fillna(train_medians.get(col, 15.0))
+
+        df['origin_rain_mm'] = df['origin_rain_mm'].fillna(0.0)
+        df['origin_visibility_km'] = df['origin_visibility_km'].fillna(train_medians['origin_visibility_km'])
+        df['origin_weather'] = df['origin_weather'].fillna('Quang đãng')
+
+        if 'air_time' in df.columns:
+            df['air_time'] = df.groupby(['origin', 'dest'])['air_time'].transform(lambda x: x.fillna(x.median()))
+            df['air_time'] = df['air_time'].fillna(train_medians['air_time'])
+
+        self.df = df
+        return df, train_medians
+
+    @staticmethod
+    def compute_iqr_bounds(series: pd.Series, multiplier: float = 1.5) -> Dict[str, float]:
+        """Task B2: Tính biên Tukey 1.5 * IQR CHỈ TRÊN TẬP HỌC (Train)."""
+        q1 = float(series.quantile(0.25))
+        q3 = float(series.quantile(0.75))
         iqr = q3 - q1
-        lower_bound = q1 - 1.5 * iqr
-        upper_bound = q3 + 1.5 * iqr
-        
-        outliers_count = len(df[(df[col] < lower_bound) | (df[col] > upper_bound)])
-        
-        if clip:
-            # Nén ngoại lai về ngưỡng biên Tukey (Winsorization) nhằm bảo toàn số lượng mẫu
-            df[col] = df[col].clip(lower=lower_bound, upper=upper_bound)
-            print(f"[Task B2] Đã xử lý ngoại lai theo 1.5xIQR cho '{col}': Q1={q1:.2f}, Q3={q3:.2f}, IQR={iqr:.2f}")
-            print(f"Biên giới hạn: [{lower_bound:.2f}, {upper_bound:.2f}], đã nén {outliers_count} điểm ngoại lai.")
-        else:
-            # Lọc bỏ hoàn toàn các bản ghi ngoại lai
-            df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
-            print(f"[Task B2] Đã loại bỏ {outliers_count} bản ghi ngoại lai ngoài biên [{lower_bound:.2f}, {upper_bound:.2f}].")
-            
-        self.df = df.reset_index(drop=True)
-        return self.df, {
+        lower_bound = q1 - multiplier * iqr
+        upper_bound = q3 + multiplier * iqr
+        return {
             'q1': q1, 'q3': q3, 'iqr': iqr,
-            'lower_bound': lower_bound, 'upper_bound': upper_bound,
-            'outliers_count': outliers_count
+            'lower_bound': lower_bound, 'upper_bound': upper_bound
         }
 
+    @staticmethod
+    def min_max_scale(series: pd.Series, feature_range: Tuple[float, float] = (0.0, 1.0)) -> pd.Series:
+        """Task B3: Chuẩn hóa Min-Max Scaling."""
+        s_min = series.min()
+        s_max = series.max()
+        if s_max == s_min:
+            return pd.Series(0.0, index=series.index)
+        scaled = (series - s_min) / (s_max - s_min)
+        return scaled * (feature_range[1] - feature_range[0]) + feature_range[0]
+
+    @staticmethod
+    def z_score_standardize(series: pd.Series) -> pd.Series:
+        """Task B3: Chuẩn hóa Z-Score Standardization."""
+        mean = series.mean()
+        std = series.std()
+        if std == 0:
+            return pd.Series(0.0, index=series.index)
+        return (series - mean) / std
+
     def compute_univariate_statistics(self, column: Union[str, pd.Series] = 'delay_minutes') -> Dict[str, Any]:
-        """
-        Task B4: Thống kê đơn biến:
-        - Độ đo vị trí: Mean, Median, Mode
-        - Độ đo quy mô: Variance, Standard Deviation
-        - Hình dạng phân bố: Skewness (độ lệch) & Kurtosis (độ nhọn)
-        Hỗ trợ cả tham số dạng chuỗi (tên cột) hoặc đối tượng pd.Series.
-        """
+        """Task B4: Thống kê mô tả đơn biến toàn diện."""
         if isinstance(column, pd.Series):
             data = column.dropna()
             col_name = column.name or 'Target_Variable'
         else:
             col_name = str(column)
             data = self.df[col_name].dropna()
-        
+
         mean_val = float(data.mean())
         median_val = float(data.median())
-        mode_series = data.mode()
-        mode_val = float(mode_series.iloc[0]) if not mode_series.empty else mean_val
-        
-        var_val = float(data.var())
+        mode_res = stats.mode(data, keepdims=True)
+        mode_val = float(mode_res.mode[0]) if len(mode_res.mode) > 0 else mean_val
+        variance_val = float(data.var())
         std_val = float(data.std())
-        skew_val = float(stats.skew(data))
-        kurt_val = float(stats.kurtosis(data))
-        
-        results = {
-            'Variable': col_name,
-            'Count': len(data),
-            'Mean': round(mean_val, 2),
-            'Median': round(median_val, 2),
-            'Mode': round(mode_val, 2),
-            'Variance': round(var_val, 2),
-            'Std_Dev': round(std_val, 2),
-            'Skewness': round(skew_val, 4),
-            'Kurtosis': round(kurt_val, 4)
-        }
-        return results
+        skew_val = float(data.skew())
+        kurt_val = float(data.kurtosis())
 
-    def save_cleaned_data(self, output_path: str = "data/processed/cleaned_flight_data.csv") -> pd.DataFrame:
+        stats_summary = {
+            'Thuộc tính': col_name,
+            'Số lượng mẫu (Count)': len(data),
+            'Trung bình (Mean)': round(mean_val, 2),
+            'Trung vị (Median)': round(median_val, 2),
+            'Yếu vị (Mode)': round(mode_val, 2),
+            'Phương sai (Variance)': round(variance_val, 2),
+            'Độ lệch chuẩn (Std Dev)': round(std_val, 2),
+            'Độ bất đối xứng (Skewness)': round(skew_val, 4),
+            'Độ nhọn (Kurtosis)': round(kurt_val, 4),
+            'Trễ nhỏ nhất (Min)': float(data.min()),
+            'Trễ lớn nhất (Max)': float(data.max())
+        }
+        return stats_summary
+
+    def run_cleaning_pipeline(self, output_path: str = "data/processed/cleaned_flight_data.csv") -> pd.DataFrame:
+        print("[Task B] Bắt đầu pipeline làm sạch và thống kê dữ liệu thật...")
+        self.handle_missing_values()
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         self.df.to_csv(output_path, index=False)
-        print(f"[Cleaner] Đã lưu dữ liệu làm sạch vào: {output_path} ({len(self.df)} dòng)")
-        return self.df
+        print(f"[Task B - Hoàn thành] Đã lưu dữ liệu làm sạch tại: {output_path}")
 
-    def clean_and_save(self, output_path: str = "data/processed/cleaned_flight_data.csv") -> pd.DataFrame:
-        """Hàm tích hợp thực hiện tuần tự làm sạch và lưu dữ liệu (Dành cho Notebook)."""
-        self.handle_missing_values()
-        self.handle_outliers_iqr('delay_minutes', clip=True)
-        return self.save_cleaned_data(output_path)
+        stats_delay = self.compute_univariate_statistics('delay_minutes')
+        print("Thống kê đơn biến thời gian trễ thực tế (delay_minutes):")
+        for k, v in stats_delay.items():
+            print(f"  - {k}: {v}")
+        return self.df
 
 if __name__ == "__main__":
     cleaner = DataCleaner()
-    print("Kiểm tra khuyết dữ liệu:\n", cleaner.check_missing_values())
-    cleaner.handle_missing_values()
-    cleaner.handle_outliers_iqr('delay_minutes')
-    stats_delay = cleaner.compute_univariate_statistics('delay_minutes')
-    print("Thống kê đơn biến thời gian trễ chuyến:\n", stats_delay)
-    cleaner.save_cleaned_data()
+    cleaner.run_cleaning_pipeline()

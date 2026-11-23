@@ -1,6 +1,8 @@
 Mô hình,MAE (phút),RMSE (phút),R2 Score,Accuracy (≥30p),F1-Score
-Baseline (Naïve Persistence),14.9,19.31,0.0483,69.1,0.7197
-Linear Regression,10.3,13.68,0.5219,79.0,0.8144
-Ridge Regression (L2 Regularization),10.3,13.68,0.522,79.1,0.8148
-Random Forest Regressor,10.06,13.32,0.5472,80.7,0.8267
-XGBoost Regressor (Tối ưu),9.98,13.2,0.5552,80.4,0.8249
+Baseline 1 (Majority Class / Zero-Rule),16.68,37.56,-0.1054,85.5,0.0
+Baseline 2 (Naïve Persistence),20.69,40.1,-0.2596,80.8,0.3027
+Linear Regression,17.23,34.46,0.0696,85.5,0.0128
+"Ridge Regression (L2, alpha=100.0)",17.24,34.46,0.07,85.6,0.0146
+"Lasso Regression (L1, alpha=0.1)",17.29,34.47,0.0692,85.5,0.0127
+Random Forest Regressor,16.36,33.65,0.1127,86.4,0.1705
+XGBoost Regressor (Tối ưu),15.76,33.43,0.1243,86.8,0.2171
