@@ -1,6 +1,6 @@
 # ✈️ FLIGHT DELAY PREDICTION PIPELINE: DỰ BÁO NGUY CƠ TRỄ CHUYẾN BAY THƯƠNG MẠI
 
-> **Dự án Môn học:** Nhập môn Khoa học Dữ liệu (IT4930 / IT4142)  
+> **Dự án Môn học:** Nhập môn Khoa học Dữ liệu (IT4930)  
 > **Trường:** Trường Công nghệ Thông tin và Truyền thông - Đại học Bách Khoa Hà Nội (SoICT - HUST)  
 > **Tập dữ liệu:** 100% Dữ liệu quan sát thực tế gồm 50,000 chuyến bay thương mại (US Bureau of Transportation Statistics) kết nối qua 3 trung tâm hàng không lớn: John F. Kennedy (JFK), Newark Liberty (EWR), LaGuardia (LGA) kết hợp 8,719 bản ghi khí tượng trạm quan trắc quốc gia NOAA.
 
