@@ -558,15 +558,19 @@ with tab_delay:
         elif dep_hour >= 21:
             reasons.append(("Khung giờ đêm muộn (sau 21h)", 25, "Chịu tổng lượng trễ tích lũy dồn từ sáng đến tối của toàn bộ đội tàu bay."))
             
-        # Yếu tố Ngày trong tuần vs Cuối tuần (Khảo sát từ 50,000 chuyến bay thực tế)
+        # Yếu tố Ngày trong tuần (Khảo sát thực nghiệm từ 50,000 chuyến bay thực tế)
         day_names_vn = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật']
         current_day_name = day_names_vn[dow_val]
-        if dow_val in [4, 6]: # Thứ Sáu & Chủ Nhật
-            reasons.append((f"Cuối tuần cao điểm ({current_day_name})", 20, f"Khảo sát từ dữ liệu thực tế: {current_day_name} có lưu lượng cất cánh dày đặc, tỷ lệ trễ dây chuyền tăng cao."))
-        elif dow_val == 5:
-            reasons.append(("Thứ Bảy di chuyển", 5, "Lưu lượng bay phân bố đều, thời gian trễ ở mức trung bình."))
+        if dow_val == 3: # Thứ Năm
+            reasons.append((f"Thứ Năm cao điểm nhất tuần ({current_day_name})", 25, "Khảo sát thực tế: Thứ Năm ghi nhận mức trễ cao nhất tuần (16.65 phút, 18.46% trễ nặng) do làn sóng khách công vụ bay về dồn ứ."))
+        elif dow_val == 4: # Thứ Sáu
+            reasons.append((f"Thứ Sáu cao điểm cuối tuần ({current_day_name})", 20, "Khảo sát thực tế: Thứ Sáu có mức trễ cao thứ nhì (14.66 phút, 17.12% trễ nặng) do lượng khách bắt đầu kỳ nghỉ cuối tuần."))
+        elif dow_val == 5: # Thứ Bảy
+            reasons.append((f"Thứ Bảy thông thoáng nhất ({current_day_name})", -20, "Khảo sát thực tế: Thứ Bảy là ngày bay đúng giờ nhất tuần (trễ bình quân chỉ 7.57 phút, trễ nặng chỉ 10.45%), đường băng thông thoáng."))
+        elif dow_val == 0: # Thứ Hai
+            reasons.append((f"Thứ Hai đầu tuần ({current_day_name})", 15, "Lưu lượng khách công vụ đầu tuần cao, trễ trung bình 13.99 phút (16.13% trễ nặng)."))
         else:
-            reasons.append((f"Ngày thường trong tuần ({current_day_name})", -10, f"Lưu lượng bay thông thoáng hơn so với ngày cao điểm cuối tuần."))
+            reasons.append((f"Ngày giữa tuần ({current_day_name})", -10, f"Thứ Ba & Thứ Tư có lưu lượng bay ổn định, mức trễ bình quân ~11 phút."))
 
         if origin_code == 'EWR':
             reasons.append(("Sân bay Newark Liberty (EWR)", 20, "EWR có mức trễ bình quân cao nhất (14.82 phút) do mật độ đường băng và không phận bận rộn."))
@@ -634,7 +638,7 @@ with tab_delay:
     
     f_df = artifacts['featured_df']
     dow_cols = st.columns(7)
-    day_titles = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "🔥 Thứ Sáu", "Thứ Bảy", "🔥 Chủ Nhật"]
+    day_titles = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "🔥 Thứ Năm (Đỉnh trễ)", "🔥 Thứ Sáu", "🟢 Thứ Bảy (Ít trễ nhất)", "Chủ Nhật"]
     
     for dow_idx in range(7):
         with dow_cols[dow_idx]:
@@ -648,9 +652,10 @@ with tab_delay:
 
     st.info("""
     📌 **Khám phá Bản chất Dữ liệu Thực nghiệm (EDA Insight từ 50,000 chuyến bay):**  
+    - **Đỉnh điểm trễ trong tuần (Thứ Năm & Thứ Sáu):** Thứ Năm ghi nhận mức trễ bình quân cao nhất tuần (**16.65 phút**, tỷ lệ trễ $\ge 30$p đạt **18.46%**), theo sát là Thứ Sáu (**14.66 phút**, tỷ lệ trễ nặng **17.12%**) do áp lực khách công vụ hoàn thành tuần làm việc và làn sóng đi lại trước cuối tuần.  
+    - **Ngày bay đúng giờ nhất (Thứ Bảy):** Thứ Bảy có mức trễ thấp nhất kỷ lục (chỉ **7.57 phút**, tỷ lệ trễ $\ge 30$p chỉ **10.45%**) nhờ lưu lượng bay giảm và không phận thông thoáng.  
     - **Quy luật bay sáng sớm:** Tỷ lệ đúng giờ của các chuyến bay trước 08:30 sáng đạt **92.35%**, do chưa tích lũy hiệu ứng trễ dây chuyền từ các chặng bay trước.  
-    - **Chiều tối cao điểm:** Mức trễ bình quân đạt đỉnh vào khung giờ 16h - 20h do mật độ hạ cánh dồn ứ và máy bay phải bay vòng chờ tiếp cận.  
-    - **Sân bay nhạy cảm nhất:** Sân bay Newark (EWR) ghi nhận mức trễ cao nhất (14.82 phút) trong cụm 3 sân bay vùng New York.
+    - **Sân bay nhạy cảm nhất:** Sân bay Newark (EWR) ghi nhận mức trễ cao nhất (**14.82 phút**) trong cụm 3 sân bay vùng New York.
     """)
 
 

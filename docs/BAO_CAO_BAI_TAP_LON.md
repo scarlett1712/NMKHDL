@@ -77,8 +77,19 @@ Bảng tổng hợp các thước đo vị trí, quy mô và hình dạng phân 
 | **Biên độ trễ (Min / Max)** | -30.0 phút / 960.0 phút | Khởi hành sớm tối đa 30 phút, chuyến trễ kỷ lục lên tới 960 phút (16 tiếng) |
 
 **Phát hiện thực nghiệm nổi bật:**
+- **Đỉnh điểm trễ trong tuần (Thứ Năm & Thứ Sáu):** Khảo sát thực nghiệm chỉ ra Thứ Năm là ngày có mức trễ cao nhất toàn tuần ($16.65$ phút, tỷ lệ trễ nặng $\ge 30$p đạt $18.46\%$), theo sát là Thứ Sáu ($14.66$ phút, tỷ lệ trễ nặng $17.12\%$). Ngược lại, Thứ Bảy là ngày bay đúng giờ nhất trong tuần ($7.57$ phút trễ, chỉ $10.45\%$ trễ nặng) do mật độ bay thương mại giảm mạnh.
 - **Quy luật bay sáng sớm:** Tỷ lệ đúng giờ (trễ $< 15$ phút) của các chuyến bay trước 08:30 sáng đạt tới **92.35%**, do máy bay đã đỗ qua đêm tại sân và chưa bị ảnh hưởng bởi hiệu ứng trễ dây chuyền tích lũy trong ngày.
 - **So sánh mức trễ giữa các sân bay:** Sân bay Newark Liberty (EWR) có mức trễ trung bình cao nhất ($14.82$ phút), tiếp theo là John F. Kennedy (JFK - $11.79$ phút) và LaGuardia (LGA - $10.66$ phút).
+
+| Ngày trong tuần | Số chuyến bay ($N$) | Trễ trung bình (Mean) | Tỷ lệ trễ nặng $\ge 30$ phút | Nhận xét thực nghiệm |
+| :--- | :---: | :---: | :---: | :--- |
+| **Thứ Hai** | 7,527 | 13.99 phút | 16.13% | Khách công vụ đầu tuần cao |
+| **Thứ Ba** | 7,496 | 10.95 phút | 14.11% | Lưu lượng ổn định |
+| **Thứ Tư** | 7,440 | 11.75 phút | 14.14% | Lưu lượng ổn định |
+| **Thứ Năm (Đỉnh trễ)** | **7,405** | **16.65 phút** | **18.46%** | **Mức trễ & tỷ lệ trễ cao nhất tuần** |
+| **Thứ Sáu** | **7,414** | **14.66 phút** | **17.12%** | **Cao thứ nhì** (Làn sóng đi nghỉ cuối tuần) |
+| **Thứ Bảy (Ít trễ nhất)** | **5,771** | **7.57 phút** | **10.45%** | **Đúng giờ nhất tuần** (Không phận thông thoáng) |
+| **Chủ Nhật** | 6,947 | 10.93 phút | 13.46% | Chiều tối dồn khách quay về |
 
 ---
 
@@ -101,7 +112,7 @@ Toàn bộ 11 biểu đồ trực quan hóa chuyên sâu được lưu trữ t�
 ### 1.6. Kỹ nghệ Đặc trưng (Feature Engineering)
 Nhóm trích xuất tổng cộng **66 thuộc tính đầu vào**:
 - **Mã hóa chu kỳ thời gian (Cyclical Encoding):** Ánh xạ giờ bay và ngày trong tuần lên đường tròn đơn vị qua $\sin$ và $\cos$ (`hour_sin`, `hour_cos`, `day_sin`, `day_cos`).
-- **Ngày cao điểm bay (`is_peak_day`):** Đánh dấu Thứ 6 và Chủ Nhật là 2 ngày cao điểm lưu lượng bay.
+- **Ngày cao điểm bay (`is_peak_day`):** Đánh dấu Thứ 5 và Thứ 6 là 2 ngày cao điểm trễ chuyến trong tuần (Thứ 5 có mức trễ $16.65$p / $18.46\%$ trễ nặng; Thứ 6 đạt $14.66$p / $17.12\%$).
 - **Khung giờ cao điểm (`is_peak_hours`):** Đánh dấu khung giờ nghẽn không lưu buổi sáng ($6\text{h}-9\text{h}$) và buổi tối ($17\text{h}-20\text{h}$).
 - **Trễ chuỗi thời gian mạng bay (Congestion Lags):**
   - `network_delay_lag_1h`: Mức trễ bình quân của sân bay tại 1 giờ trước đó.

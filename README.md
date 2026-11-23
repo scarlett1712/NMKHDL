@@ -89,6 +89,7 @@ KHDL/
 | 7 | **XGBoost Regressor (Tối ưu)** | **15.76** | **33.43** | **0.1243** | **86.8%** | **0.2171** | **Mô hình vượt trội toàn diện** |
 
 ### Phát hiện Thực nghiệm từ Dữ liệu Thật (EDA Insights):
+- **Đỉnh điểm trễ trong tuần (Thứ Năm & Thứ Sáu):** Thứ Năm có mức trễ bình quân cao nhất tuần (**16.65 phút**, tỷ lệ trễ $\ge 30$p đạt **18.46%**), theo sát là Thứ Sáu (**14.66 phút**, tỷ lệ trễ nặng **17.12%**) do áp lực khách công vụ kết thúc tuần làm việc và lượng người đi du lịch sớm. Ngược lại, Thứ Bảy là ngày bay đúng giờ nhất tuần (trễ trung bình chỉ **7.57 phút**, trễ nặng chỉ **10.45%**).
 - **Quy luật bay sáng sớm:** Tỷ lệ cất cánh đúng giờ (trễ $< 15$ phút) của các chuyến bay trước 08:30 sáng đạt **92.35%**, do chưa tích lũy hiệu ứng trễ dây chuyền từ các chuyến bay trước trong ngày.
 - **Sân bay nhạy cảm với trễ:** Sân bay Newark Liberty (EWR) ghi nhận mức trễ trung bình cao nhất (**14.82 phút**), trong khi JFK là **11.79 phút** và LaGuardia là **10.66 phút**.
 - **Tự tương quan chuỗi thời gian:** Hệ số tương quan bậc 1 đạt $r = 0.292$ trên Lag Plot, chứng minh mức độ trễ của sân bay ở giờ trước tác động trực tiếp đến các chuyến bay cất cánh ở giờ kế tiếp.
