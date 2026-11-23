@@ -1,7 +1,7 @@
 """
 Ứng dụng Web Dashboard Streamlit:
-Hệ thống Dự báo Nguy cơ Trễ chuyến bay (Flight Delay Predictor) & Săn Vé máy bay Giá rẻ (Airfare Price Tracker)
-Chặng bay: Các đường bay nội địa Việt Nam (HAN, SGN, DAD, CXR, PQC)
+Hệ thống Dự báo Nguy cơ Trễ chuyến bay (Flight Delay Predictor)
+Chặng bay: Các đường bay thương mại nội địa Mỹ từ cụm sân bay NYC (JFK / EWR / LGA) - US Airlines
 Tích hợp: Quét vé máy bay (Boarding Pass OCR Scanner), Open-Meteo REST API thời gian thực & Mô hình học máy XGBoost
 Môn học: Nhập môn Khoa học Dữ liệu (IT4930 / IT4142) - SoICT, Đại học Bách Khoa Hà Nội (HUST)
 """
@@ -301,7 +301,7 @@ if "Dông Bão" in weather_mode:
     dest_weather_desc = "Thời tiết tiếp cận dông gió, nguy cơ bay vòng chờ"
 elif "Mưa" in weather_mode:
     dest_weather_desc = "Mưa rải rác, đường băng ướt"
-elif "Sương mù" in weather_mode and dest_code == 'HAN':
+elif "Sương mù" in weather_mode:
     dest_weather_desc = "Sương mù hạn chế hạ cánh"
 
 st.sidebar.caption(f"🌦️ **{origin_code}**: {origin_temp:.1f}°C, Mưa: {origin_rain:.1f}mm, Gió: {origin_wind:.0f}km/h")
@@ -309,7 +309,7 @@ st.sidebar.caption(f"🌦️ **{origin_code}**: {origin_temp:.1f}°C, Mưa: {ori
 st.sidebar.divider()
 selected_model_name = st.sidebar.selectbox(
     "🤖 Chọn Mô hình Học máy:",
-    ["XGBoost Regressor (Tối ưu - MAE ~9.9p)", "Random Forest (MAE ~10.0p)", "Ridge Regression (L2)"]
+    ["XGBoost Regressor (Tối ưu - MAE ~15.8p)", "Random Forest (MAE ~16.4p)", "Ridge Regression (L2)"]
 )
 
 # ----------------- 6. HÀM DỰ ĐOÁN DELAY -----------------
@@ -328,7 +328,7 @@ def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
     inp['day_sin'] = np.sin(2 * np.pi * dow / 7.0)
     inp['day_cos'] = np.cos(2 * np.pi * dow / 7.0)
     
-    dist_map = {'LAX': 2475.0, 'ORD': 719.0, 'ATL': 762.0, 'MIA': 1089.0, 'SFO': 2565.0, 'BOS': 190.0, 'MCO': 944.0}
+    dist_map = {'LAX': 2475.0, 'ORD': 719.0, 'ATL': 762.0, 'MIA': 1089.0, 'SFO': 2565.0, 'BOS': 190.0}
     dist = dist_map.get(dest, 1000.0)
     inp['distance'] = dist
     inp['air_time'] = dist / 7.5
@@ -434,7 +434,7 @@ with tab_delay:
         🛬 **Sân bay Hạ cánh: {AIRPORTS[dest_code]['name']} ({dest_code})**  
         - **Trạng thái tiếp nhận:** `{dest_weather_desc}` ({weather_badge_d})  
         - **Năng lực tiếp thu:** `{AIRPORTS[dest_code]['capacity']}`  
-        - **Áp lực hạ cánh:** `{'Rất cao (Nguy cơ bay vòng chờ)' if (dest_code == 'SGN' and 16 <= dep_hour <= 20) else 'Bình thường'}`
+        - **Áp lực hạ cánh:** `{'Rất cao (Nguy cơ bay vòng chờ)' if (dest_code in ['ORD', 'ATL'] and 16 <= dep_hour <= 20) else 'Bình thường'}`
         """)
 
     st.markdown("---")

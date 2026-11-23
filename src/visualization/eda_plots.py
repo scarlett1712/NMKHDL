@@ -229,19 +229,6 @@ def plot_kmeans_elbow(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> plt.Figur
     plt.close(fig)
     return fig
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(k_range, inertias, 'o-', color='#e377c2', linewidth=2, markersize=7)
-    ax.axvline(3, color='blue', linestyle='--', label='Điểm gập khuỷu tối ưu (Elbow k=3)')
-    ax.set_title("Task C11: Phương pháp Elbow chọn số cụm K-Means tối ưu", fontsize=12, fontweight='bold', pad=10)
-    ax.set_xlabel("Số cụm k", fontsize=10)
-    ax.set_ylabel("Tổng bình phương khoảng cách (Inertia)", fontsize=10)
-    ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.5)
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_dir, "task_c11_kmeans_elbow.png"), dpi=300)
-    plt.close(fig)
-    return fig
-
 def generate_all_eda_plots(featured_path: str = "data/processed/featured_flight_dataset.csv"):
     print("[Task C] Bắt đầu sinh toàn bộ các biểu đồ EDA...")
     df = pd.read_csv(featured_path)
