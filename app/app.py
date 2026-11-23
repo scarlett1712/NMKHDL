@@ -2,8 +2,11 @@
 Ứng dụng Web Dashboard Streamlit:
 Hệ thống Dự báo Nguy cơ Trễ chuyến bay (Flight Delay Predictor)
 Chặng bay: Các đường bay thương mại nội địa Mỹ từ cụm sân bay NYC (JFK / EWR / LGA) - US Airlines
-Tích hợp: Quét vé máy bay (Boarding Pass OCR Scanner), Open-Meteo REST API thời gian thực & Mô hình học máy XGBoost
+Tích hợp: Open-Meteo REST API thời gian thực, dữ liệu Web Crawler (Wikipedia/FAA) & Mô hình học máy XGBoost
 Môn học: Nhập môn Khoa học Dữ liệu (IT4930 / IT4142) - SoICT, Đại học Bách Khoa Hà Nội (HUST)
+
+Mọi con số thống kê hiển thị trong app đều được tính từ data/processed/featured_flight_dataset.csv
+và các file kết quả trong docs/figures/, không gõ tay.
 """
 
 import streamlit as st
@@ -11,49 +14,41 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-import re
 import requests
 from datetime import datetime, timedelta
-from PIL import Image
-from rapidocr_onnxruntime import RapidOCR
 import folium
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 st.set_page_config(
-    page_title="Vietnam AirWatch - Dự báo Trễ Chuyến & Săn Vé Máy Bay",
+    page_title="Flight Delay Predictor - Dự báo Trễ chuyến bay NYC",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ----------------- OCR ENGINE -----------------
-@st.cache_resource
-def get_ocr_engine():
-    return RapidOCR()
-
 # ----------------- THÔNG TIN SÂN BAY & ĐƯỜNG BAY THỰC TẾ -----------------
 AIRPORTS = {
-    'JFK': {'name': 'John F. Kennedy (New York)', 'lat': 40.6413, 'lon': -73.7781, 'capacity': '90 chuyến/giờ'},
-    'EWR': {'name': 'Newark Liberty (New Jersey)', 'lat': 40.6895, 'lon': -74.1745, 'capacity': '95 chuyến/giờ (Điểm nghẽn cao)'},
-    'LGA': {'name': 'LaGuardia (New York)', 'lat': 40.7769, 'lon': -73.8740, 'capacity': '80 chuyến/giờ'},
-    'ORD': {'name': "Chicago O'Hare (Chicago)", 'lat': 41.9742, 'lon': -87.9073, 'capacity': '110 chuyến/giờ'},
-    'LAX': {'name': 'Los Angeles (California)', 'lat': 33.9416, 'lon': -118.4085, 'capacity': '105 chuyến/giờ'},
-    'ATL': {'name': 'Hartsfield-Jackson (Atlanta)', 'lat': 33.6407, 'lon': -84.4277, 'capacity': '120 chuyến/giờ'},
-    'MIA': {'name': 'Miami International (Florida)', 'lat': 25.7959, 'lon': -80.2870, 'capacity': '75 chuyến/giờ'},
-    'BOS': {'name': 'Boston Logan (Massachusetts)', 'lat': 42.3656, 'lon': -71.0096, 'capacity': '70 chuyến/giờ'},
-    'SFO': {'name': 'San Francisco (California)', 'lat': 37.6213, 'lon': -122.3790, 'capacity': '85 chuyến/giờ'}
+    'JFK': {'name': 'John F. Kennedy (New York)', 'lat': 40.6413, 'lon': -73.7781},
+    'EWR': {'name': 'Newark Liberty (New Jersey)', 'lat': 40.6895, 'lon': -74.1745},
+    'LGA': {'name': 'LaGuardia (New York)', 'lat': 40.7769, 'lon': -73.8740},
+    'ORD': {'name': "Chicago O'Hare (Chicago)", 'lat': 41.9742, 'lon': -87.9073},
+    'LAX': {'name': 'Los Angeles (California)', 'lat': 33.9416, 'lon': -118.4085},
+    'ATL': {'name': 'Hartsfield-Jackson (Atlanta)', 'lat': 33.6407, 'lon': -84.4277},
+    'MIA': {'name': 'Miami International (Florida)', 'lat': 25.7959, 'lon': -80.2870},
+    'BOS': {'name': 'Boston Logan (Massachusetts)', 'lat': 42.3656, 'lon': -71.0096},
+    'SFO': {'name': 'San Francisco (California)', 'lat': 37.6213, 'lon': -122.3790}
 }
 
 AIRLINES_INFO = {
-    'United Airlines': {'code': 'UA', 'otp': '81.2%', 'color': '#00558f', 'fleet': 'B737, B777, B787'},
-    'Delta Air Lines': {'code': 'DL', 'otp': '85.4%', 'color': '#dc2626', 'fleet': 'A321, A350, B737'},
-    'American Airlines': {'code': 'AA', 'otp': '80.1%', 'color': '#0284c7', 'fleet': 'A320, B737, B777'},
-    'JetBlue Airways': {'code': 'B6', 'otp': '74.5%', 'color': '#0f766e', 'fleet': 'A320, A321, E190'},
-    'ExpressJet': {'code': 'EV', 'otp': '72.3%', 'color': '#f59e0b', 'fleet': 'ERJ-145, CRJ-200'},
-    'Southwest Airlines': {'code': 'WN', 'otp': '79.0%', 'color': '#ca8a04', 'fleet': 'B737-700, B737-800'}
+    'United Airlines': {'code': 'UA', 'color': '#00558f'},
+    'Delta Air Lines': {'code': 'DL', 'color': '#dc2626'},
+    'American Airlines': {'code': 'AA', 'color': '#0284c7'},
+    'JetBlue Airways': {'code': 'B6', 'color': '#0f766e'},
+    'ExpressJet': {'code': 'EV', 'color': '#f59e0b'},
+    'Southwest Airlines': {'code': 'WN', 'color': '#ca8a04'}
 }
+DAY_NAMES_VN = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật']
 
 ROUTES_LIST = [
     ("JFK", "LAX", "New York (JFK) ✈️ Los Angeles (LAX)"),
@@ -76,8 +71,6 @@ if 'hour_key' not in st.session_state:
     st.session_state['hour_key'] = 18
 if 'min_key' not in st.session_state:
     st.session_state['min_key'] = 30
-if 'aircraft_key' not in st.session_state:
-    st.session_state['aircraft_key'] = 'B737'
 if 'flight_code_key' not in st.session_state:
     st.session_state['flight_code_key'] = 'UA1504'
 
@@ -104,6 +97,22 @@ def load_models_and_artifacts():
     dataset_path = os.path.join(base_dir, "data", "processed", "featured_flight_dataset.csv")
     featured_df = pd.read_csv(dataset_path) if os.path.exists(dataset_path) else None
 
+    traffic_path = os.path.join(base_dir, "data", "raw", "crawled_us_airport_traffic.csv")
+    airport_traffic = pd.read_csv(traffic_path).set_index('iata') if os.path.exists(traffic_path) else None
+
+    def _load_opt(name):
+        p = os.path.join(model_dir, name)
+        return joblib.load(p) if os.path.exists(p) else None
+
+    def _read_fig_csv(name):
+        p = os.path.join(base_dir, "docs", "figures", name)
+        return pd.read_csv(p) if os.path.exists(p) else None
+
+    thr = _load_opt("classifier_threshold.pkl")
+    classifier_threshold = float(thr) if thr is not None else 0.5
+    calibrator = _load_opt("classifier_calibrator.pkl")
+    model_info = _load_opt("model_info.pkl") or {}
+
     return {
         'xgb': model_xgb,
         'rf': model_rf,
@@ -115,11 +124,37 @@ def load_models_and_artifacts():
         'features': feature_cols,
         'metrics': metrics_df,
         'featured_df': featured_df,
+        'airport_traffic': airport_traffic,
+        'classifier_threshold': classifier_threshold,
+        'calibrator': calibrator,
+        'model_info': model_info,
+        'cls_metrics': _read_fig_csv("classification_metrics.csv"),
+        'calibration': _read_fig_csv("probability_calibration.csv"),
+        'overfit_curve': _read_fig_csv("overfitting_curve.csv"),
         'base_dir': base_dir
     }
 
 artifacts = load_models_and_artifacts()
 base_dir = artifacts['base_dir']
+FDF = artifacts['featured_df']
+OVERALL_MEAN = float(FDF['delay_minutes'].mean()) if FDF is not None else float('nan')
+OVERALL_SEVERE = float((FDF['delay_minutes'] >= 30).mean()) if FDF is not None else float('nan')
+
+def group_effect(mask: pd.Series):
+    """Thống kê lịch sử 2013 của một nhóm chuyến bay so với toàn bộ dữ liệu: (số chuyến, trễ TB, % trễ ≥30p)."""
+    sub = FDF.loc[mask, 'delay_minutes']
+    return len(sub), float(sub.mean()), float((sub >= 30).mean())
+
+def hour_bucket(h: int):
+    if h < 9:
+        return "Sáng sớm (trước 9h)", (FDF['hour'] < 9)
+    if h < 13:
+        return "Buổi sáng (9h - 12h)", FDF['hour'].between(9, 12)
+    if h < 17:
+        return "Buổi chiều (13h - 16h)", FDF['hour'].between(13, 16)
+    if h < 21:
+        return "Chiều tối (17h - 20h)", FDF['hour'].between(17, 20)
+    return "Đêm muộn (từ 21h)", (FDF['hour'] >= 21)
 
 # ----------------- 4. GỌI OPEN-METEO LIVE REST API THEO GIỜ BAY -----------------
 @st.cache_data(ttl=900)
@@ -241,13 +276,7 @@ dep_minute = st.sidebar.slider(
     key='min_key'
 )
 
-aircraft_list = ['B737', 'A320', 'A321', 'B777', 'B787', 'ERJ-145']
-
-selected_aircraft = st.sidebar.selectbox(
-    "5. Loại máy bay khai thác:",
-    aircraft_list,
-    key='aircraft_key'
-)
+selected_aircraft = None  # Mô hình không dùng loại máy bay làm đặc trưng
 
 st.sidebar.divider()
 st.sidebar.subheader("🌦️ Điều kiện Thời tiết Sân bay:")
@@ -305,12 +334,15 @@ elif "Sương mù" in weather_mode:
     dest_weather_desc = "Sương mù hạn chế hạ cánh"
 
 st.sidebar.caption(f"🌦️ **{origin_code}**: {origin_temp:.1f}°C, Mưa: {origin_rain:.1f}mm, Gió: {origin_wind:.0f}km/h")
+st.sidebar.caption("⚠️ Mô hình học từ dữ liệu năm 2013. Thời tiết trực tiếp/giả lập chỉ dùng để minh họa cách mô hình phản ứng.")
 
 st.sidebar.divider()
+XGB_LABEL = artifacts['model_info'].get('objective_label', 'XGBoost')
 selected_model_name = st.sidebar.selectbox(
     "🤖 Chọn Mô hình Học máy:",
-    ["XGBoost Regressor (Tối ưu - MAE ~15.8p)", "Random Forest (MAE ~16.4p)", "Ridge Regression (L2)"]
+    [f"{XGB_LABEL} - MAE thấp nhất", "Random Forest", "Ridge Regression (L2)"]
 )
+PREDICTS_MEDIAN = "absolute error" in selected_model_name
 
 # ----------------- 6. HÀM DỰ ĐOÁN DELAY -----------------
 def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
@@ -331,8 +363,13 @@ def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
     dist_map = {'LAX': 2475.0, 'ORD': 719.0, 'ATL': 762.0, 'MIA': 1089.0, 'SFO': 2565.0, 'BOS': 190.0}
     dist = dist_map.get(dest, 1000.0)
     inp['distance'] = dist
-    inp['air_time'] = dist / 7.5
-    
+
+    # Quy mô sân bay đến - lấy từ dữ liệu Web Crawler (Wikipedia / FAA) đã tích hợp
+    traffic = artifacts.get('airport_traffic')
+    if traffic is not None and dest in traffic.index:
+        inp['dest_hub_tier'] = float(traffic.loc[dest, 'hub_tier'])
+        inp['dest_enplanements_m'] = float(traffic.loc[dest, 'enplanements_2016']) / 1e6
+
     # Lấy trễ mạng bay trung bình theo giờ từ tập dữ liệu thực tế (Không gán cứng)
     if artifacts['featured_df'] is not None:
         sub_h = artifacts['featured_df'][(artifacts['featured_df']['origin'] == origin) & (artifacts['featured_df']['hour'] == hour)]
@@ -379,17 +416,18 @@ def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
         scaled = artifacts['scaler'].transform(df_sample)
         pred_delay = float(artifacts['ridge'].predict(scaled)[0])
 
-    # Xác suất trễ >= 30 phút từ mô hình phân loại XGBClassifier thực tế
+    # Xác suất trễ >= 30 phút: điểm thô XGBClassifier -> hiệu chỉnh Isotonic; cảnh báo theo ngưỡng chọn trên Val
+    prob_pct, alert = None, False
     if artifacts['classifier'] is not None:
-        prob = float(artifacts['classifier'].predict_proba(df_sample)[0, 1])
+        raw = float(artifacts['classifier'].predict_proba(df_sample)[0, 1])
+        alert = raw >= artifacts['classifier_threshold']
+        prob = float(artifacts['calibrator'].predict([raw])[0]) if artifacts['calibrator'] is not None else raw
         prob_pct = int(round(prob * 100))
-    else:
-        prob_pct = int(np.clip(round((pred_delay - 5) / 35 * 100), 5, 95))
-        
-    return float(pred_delay), prob_pct
+
+    return float(pred_delay), prob_pct, alert
 
 dow_val = target_date.weekday()
-pred_minutes, delay_prob_pct = predict_flight_delay(
+pred_minutes, delay_prob_pct, severe_alert = predict_flight_delay(
     airline=selected_airline,
     origin=origin_code,
     dest=dest_code,
@@ -404,9 +442,11 @@ pred_minutes, delay_prob_pct = predict_flight_delay(
 )
 
 # ----------------- 7. GIAO DIỆN CHÍNH 2 PHÂN HỆ -----------------
+N_MODELS = len(artifacts['metrics']) if artifacts['metrics'] is not None else 0
+N_FIGS = len([f for f in os.listdir(os.path.join(base_dir, "docs", "figures")) if f.startswith("task_c") and f.endswith(".png")])
 tab_delay, tab_analytics = st.tabs([
-    "✈️ DỰ BÁO NGUY CƠ TRỄ CHUYẾN BAY (PREDICTION PIPELINE)",
-    "📊 KHÁM PHÁ DỮ LIỆU & ĐÁNH GIÁ 7 MÔ HÌNH HỌC MÁY (11 BIỂU ĐỒ EDA)"
+    "✈️ DỰ BÁO NGUY CƠ TRỄ CHUYẾN BAY",
+    f"📊 KHÁM PHÁ DỮ LIỆU ({N_FIGS} BIỂU ĐỒ EDA) & ĐÁNH GIÁ {N_MODELS} MÔ HÌNH (GỒM 2 BASELINE)"
 ])
 
 # ================= TAB 1: DỰ BÁO TRỄ CHUYẾN BAY =================
@@ -430,11 +470,15 @@ with tab_delay:
         """)
     with w_col2:
         weather_badge_d = "🟡 Chú ý tiếp cận" if ("Dông Bão" in weather_mode or "Mưa" in weather_mode) else "🟢 Ổn định"
+        traffic = artifacts['airport_traffic']
+        if traffic is not None and dest_code in traffic.index:
+            hub_text = f"{traffic.loc[dest_code, 'hub_category']} - {traffic.loc[dest_code, 'enplanements_2016'] / 1e6:.1f} triệu lượt khách lên máy bay (FAA 2016, Wikipedia)"
+        else:
+            hub_text = "Không thuộc nhóm large/medium hub của FAA"
         st.info(f"""
-        🛬 **Sân bay Hạ cánh: {AIRPORTS[dest_code]['name']} ({dest_code})**  
-        - **Trạng thái tiếp nhận:** `{dest_weather_desc}` ({weather_badge_d})  
-        - **Năng lực tiếp thu:** `{AIRPORTS[dest_code]['capacity']}`  
-        - **Áp lực hạ cánh:** `{'Rất cao (Nguy cơ bay vòng chờ)' if (dest_code in ['ORD', 'ATL'] and 16 <= dep_hour <= 20) else 'Bình thường'}`
+        🛬 **Sân bay Hạ cánh: {AIRPORTS[dest_code]['name']} ({dest_code})**
+        - **Trạng thái tiếp nhận:** `{dest_weather_desc}` ({weather_badge_d})
+        - **Quy mô sân bay (dữ liệu Web Crawler):** `{hub_text}`
         """)
 
     st.markdown("---")
@@ -447,18 +491,27 @@ with tab_delay:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("🕒 Khung giờ cất cánh", f"{dep_hour:02d}:{dep_minute:02d}", f"{'Cuối tuần đông khách' if dow_val in [4, 6] else 'Ngày thường'}")
+        st.metric("🕒 Khung giờ cất cánh", f"{dep_hour:02d}:{dep_minute:02d}", DAY_NAMES_VN[dow_val], delta_color="off")
     with c2:
-        st.metric("⏱️ Dự báo thời gian trễ", f"{pred_minutes:.0f} phút", f"Mô hình {selected_model_name.split()[0]}")
+        st.metric("⏱️ Dự báo trễ (trung vị)" if PREDICTS_MEDIAN else "⏱️ Dự báo trễ (trung bình)",
+                  f"{pred_minutes:.0f} phút", selected_model_name.split(' - ')[0], delta_color="off")
     with c3:
-        st.metric("📊 Xác suất Trễ (≥30p)", f"{delay_prob_pct}%", "Ước lượng rủi ro")
-    with c4:
-        if pred_minutes < 15:
-            st.success("🟢 ĐÚNG GIỜ / TRỄ NHẸ (< 15p)")
-        elif pred_minutes < 35:
-            st.warning("🟡 TRỄ VỪA (15 - 35p)")
+        if delay_prob_pct is not None:
+            st.metric("📊 Xác suất trễ ≥ 30 phút", f"{delay_prob_pct}%",
+                      f"Trung bình lịch sử: {OVERALL_SEVERE * 100:.1f}%", delta_color="off")
         else:
-            st.error("🔴 NGUY CƠ TRỄ NẶNG (≥ 35p)")
+            st.metric("📊 Xác suất trễ ≥ 30 phút", "N/A")
+    with c4:
+        if severe_alert:
+            st.error(f"🔴 CẢNH BÁO NGUY CƠ TRỄ ≥ 30 PHÚT\n\n(XGBClassifier vượt ngưỡng {artifacts['classifier_threshold']:.2f} chọn trên tập Validation)")
+        elif delay_prob_pct is not None and delay_prob_pct / 100 > OVERALL_SEVERE:
+            st.warning("🟡 RỦI RO CAO HƠN MỨC TRUNG BÌNH")
+        else:
+            st.success("🟢 RỦI RO THẤP / BÌNH THƯỜNG")
+    if PREDICTS_MEDIAN:
+        st.caption("Mô hình XGBoost tối ưu hàm mất mát absolute error nên dự báo **trung vị** số phút trễ "
+                   f"(trung vị lịch sử ≈ {FDF['delay_minutes'].median():.0f} phút: đa số chuyến cất cánh đúng giờ). "
+                   "Nguy cơ trễ nặng nên đọc theo cột xác suất và cảnh báo.")
 
     st.markdown("---")
     
@@ -492,7 +545,7 @@ with tab_delay:
             name="Google Maps Vệ Tinh"
         ).add_to(m)
         
-        line_color = "#dc2626" if pred_minutes >= 35 else ("#f59e0b" if pred_minutes >= 15 else "#16a34a")
+        line_color = "#dc2626" if severe_alert else ("#f59e0b" if (delay_prob_pct or 0) / 100 > OVERALL_SEVERE else "#16a34a")
         folium.PolyLine(
             locations=[[orig_coord['lat'], orig_coord['lon']], [dest_coord['lat'], dest_coord['lon']]],
             color=line_color,
@@ -510,253 +563,215 @@ with tab_delay:
         
         folium.Marker(
             location=[dest_coord['lat'], dest_coord['lon']],
-            popup=f"<b>Điểm đến: {dest_coord['name']}</b><br/>Năng lực tiếp nhận: {dest_coord['capacity']}<br/>Thời tiết: {dest_weather_desc}",
+            popup=f"<b>Điểm đến: {dest_coord['name']}</b><br/>Thời tiết: {dest_weather_desc}",
             tooltip=f"Điểm hạ cánh: {dest_coord['name']}",
-            icon=folium.Icon(color="red" if dest_code == 'SGN' else "green", icon="flag")
+            icon=folium.Icon(color="green", icon="flag")
         ).add_to(m)
         
         folium.LayerControl().add_to(m)
         st_folium(m, width="100%", height=440, returned_objects=[])
 
     with col_right:
-        st.markdown("##### 💡 Giải thích Nguyên nhân từ AI (Explainable AI & Delay Attribution):")
-        
-        # 1. GIẢI THÍCH CHI TIẾT NGUYÊN NHÂN KHÍ TƯỢNG / THỜI TIẾT
+        st.markdown("##### 🌦️ Bối cảnh thời tiết (mô tả định tính):")
         if origin_rain > 30.0 or origin_gusts > 40.0 or origin_weather_code >= 95:
-            st.error(f"""
-            ⛈️ **CẢNH BÁO THỜI TIẾT DÔNG BÃO NGUY HIỂM TẠI {origin_code}:**  
-            - **Diễn biến khí tượng:** {origin_weather_desc} (Lượng mưa: `{origin_rain:.1f} mm`, Gió giật: `{origin_gusts:.0f} km/h`).  
-            - **Cơ chế gây trễ chuyến:**  
-              * Theo quy chế an toàn bay Cục Hàng không (CAAV), thời gian giãn cách cất cánh tối thiểu bắt buộc tăng từ 3 phút lên **6 – 10 phút**.  
-              * Đám mây dông tích điện (Cumulonimbus - CB) bao phủ đường bay buộc kiểm soát viên không lưu (ATC) phát lệnh **Ground Stop** (tạm giữ máy bay tại bãi đỗ).  
-              * **Yếu tố thời tiết cực đoan đóng góp ước tính +25 đến +45 phút vào tổng số phút trễ!**
-            """)
+            st.error(f"⛈️ **Dông / gió giật mạnh tại {origin_code}:** {origin_weather_desc} "
+                     f"(mưa `{origin_rain:.1f} mm`, gió giật `{origin_gusts:.0f} km/h`). Khi có dông, FAA có thể giãn cách cất cánh "
+                     "hoặc tạm giữ máy bay tại sân đỗ (ground stop).")
         elif origin_rain > 5.0 or origin_gusts > 25.0:
-            st.warning(f"""
-            🌧️ **ẢNH HƯỞNG KHÍ TƯỢNG MƯA GIÓ ({origin_code}):**  
-            - **Diễn biến:** {origin_weather_desc} (Lượng mưa: `{origin_rain:.1f} mm`, Gió: `{origin_wind:.0f} km/h`).  
-            - **Cơ chế gây trễ:** Bề mặt đường băng ướt làm giảm hiệu quả phanh khẩn cấp, các chuyến bay phải nới rộng cự ly tiếp cận, gây trễ tích lũy khoảng **+10 – 18 phút**.
-            """)
+            st.warning(f"🌧️ **Mưa / gió tại {origin_code}:** {origin_weather_desc} (mưa `{origin_rain:.1f} mm`, gió `{origin_wind:.0f} km/h`).")
         elif origin_weather_code in [45, 48] or "Sương mù" in origin_weather_desc:
-            st.warning(f"""
-            🌫️ **CẢNH BÁO TẦM NHÌN THẤP (SƯƠNG MÙ BỨC XẠ):**  
-            - **Diễn biến:** Tầm nhìn đường băng (RVR) giảm sâu dưới 800m (đặc trưng mùa đông Nội Bài).  
-            - **Cơ chế gây trễ:** Sân bay kích hoạt quy trình điều hành tầm nhìn thấp (CAT II/III), giảm tần suất tiếp thu máy bay cất/hạ cánh xuống 40%.
-            """)
+            st.warning("🌫️ **Tầm nhìn thấp (sương mù):** sân bay có thể giảm tần suất cất/hạ cánh.")
         else:
-            st.success(f"☀️ **Thời tiết thuận lợi ({origin_code}):** {origin_weather_desc}. Không có rủi ro khí tượng cản trở hành trình.")
+            st.success(f"☀️ **Thời tiết thuận lợi ({origin_code}):** {origin_weather_desc}.")
 
-        # 2. GIẢI THÍCH CÁC YẾU TỐ VẬN HÀNH & MẠNG LƯỚI
-        st.markdown("###### ⚙️ Các yếu tố Vận hành & Lưới bay:")
-        reasons = []
-        
-        # Yếu tố Khung giờ
-        if 16 <= dep_hour <= 20:
-            reasons.append(("Cao điểm chiều tối (16h - 20h)", 35, "Tàu bay tích tụ trễ dây chuyền từ các chặng bay trước đó trong ngày."))
-        elif 6 <= dep_hour <= 8:
-            reasons.append(("Chuyến bay sáng sớm (06h - 08h)", -20, "Máy bay đã đỗ qua đêm sẵn tại sân đỗ, tỷ lệ đúng giờ cao nhất."))
-        elif dep_hour >= 21:
-            reasons.append(("Khung giờ đêm muộn (sau 21h)", 25, "Chịu tổng lượng trễ tích lũy dồn từ sáng đến tối của toàn bộ đội tàu bay."))
-            
-        # Yếu tố Ngày trong tuần (Khảo sát thực nghiệm từ 50,000 chuyến bay thực tế)
-        day_names_vn = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật']
-        current_day_name = day_names_vn[dow_val]
-        if dow_val == 3: # Thứ Năm
-            reasons.append((f"Thứ Năm cao điểm nhất tuần ({current_day_name})", 25, "Khảo sát thực tế: Thứ Năm ghi nhận mức trễ cao nhất tuần (16.65 phút, 18.46% trễ nặng) do làn sóng khách công vụ bay về dồn ứ."))
-        elif dow_val == 4: # Thứ Sáu
-            reasons.append((f"Thứ Sáu cao điểm cuối tuần ({current_day_name})", 20, "Khảo sát thực tế: Thứ Sáu có mức trễ cao thứ nhì (14.66 phút, 17.12% trễ nặng) do lượng khách bắt đầu kỳ nghỉ cuối tuần."))
-        elif dow_val == 5: # Thứ Bảy
-            reasons.append((f"Thứ Bảy thông thoáng nhất ({current_day_name})", -20, "Khảo sát thực tế: Thứ Bảy là ngày bay đúng giờ nhất tuần (trễ bình quân chỉ 7.57 phút, trễ nặng chỉ 10.45%), đường băng thông thoáng."))
-        elif dow_val == 0: # Thứ Hai
-            reasons.append((f"Thứ Hai đầu tuần ({current_day_name})", 15, "Lưu lượng khách công vụ đầu tuần cao, trễ trung bình 13.99 phút (16.13% trễ nặng)."))
-        else:
-            reasons.append((f"Ngày giữa tuần ({current_day_name})", -10, f"Thứ Ba & Thứ Tư có lưu lượng bay ổn định, mức trễ bình quân ~11 phút."))
+        # Thống kê lịch sử 2013 của từng yếu tố, so với trung bình toàn bộ dữ liệu (tính trực tiếp từ CSV)
+        st.markdown("###### 📊 Thống kê lịch sử 2013 của các nhóm chuyến bay tương tự:")
+        if FDF is not None:
+            carrier_code = AIRLINES_INFO.get(selected_airline, {}).get('code', '')
+            hb_label, hb_mask = hour_bucket(dep_hour)
+            factors = [
+                (f"Khung giờ: {hb_label}", hb_mask),
+                (f"Ngày: {DAY_NAMES_VN[dow_val]}", FDF['dayofweek'] == dow_val),
+                (f"Sân bay đi: {origin_code}", FDF['origin'] == origin_code),
+                (f"Hãng: {selected_airline} ({carrier_code})", FDF['airline'] == carrier_code),
+                (f"Sân bay đến: {dest_code}", FDF['dest'] == dest_code),
+            ]
+            rows = []
+            for label, mask in factors:
+                n, mean_d, severe = group_effect(mask)
+                if n == 0:
+                    continue
+                rows.append({'Yếu tố': label, 'Số chuyến': n, 'Trễ TB (phút)': round(mean_d, 1),
+                             'Chênh lệch (phút)': round(mean_d - OVERALL_MEAN, 1), '% trễ ≥30p': round(severe * 100, 1)})
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
+            st.caption(f"Mốc so sánh: toàn bộ {len(FDF):,} chuyến có trễ TB {OVERALL_MEAN:.1f} phút, "
+                       f"{OVERALL_SEVERE * 100:.1f}% trễ ≥ 30 phút. Đây là thống kê mô tả (tương quan), "
+                       "không phải mức đóng góp nhân quả của từng yếu tố vào dự báo.")
 
-        if origin_code == 'EWR':
-            reasons.append(("Sân bay Newark Liberty (EWR)", 20, "EWR có mức trễ bình quân cao nhất (14.82 phút) do mật độ đường băng và không phận bận rộn."))
-        elif origin_code == 'JFK':
-            reasons.append(("Trung tâm JFK Quốc tế", 10, "Mật độ chuyến bay quốc tế và nội địa lớn, điều phối slot cất cánh chặt chẽ."))
-        elif origin_code == 'LGA':
-            reasons.append(("Sân bay LaGuardia (LGA)", -5, "Sân bay cự ly ngắn, thời gian lăn bánh cất cánh trung bình ngắn hơn."))
-            
-        if selected_airline == 'ExpressJet':
-            reasons.append(("Đặc thù trung chuyển ExpressJet", 25, "Thời gian quay đầu máy bay ngắn, nhạy cảm với trễ dây chuyền mạng bay."))
-        elif selected_airline == 'JetBlue Airways':
-            reasons.append(("Mật độ khai thác JetBlue tại New York", 15, "Tập trung phần lớn chuyến bay tại hub JFK, chịu ảnh hưởng thời tiết Đông Bắc."))
-        elif selected_airline == 'Delta Air Lines':
-            reasons.append(("Tỷ lệ đúng giờ Delta Air Lines", -15, "Delta duy trì tỷ lệ đúng giờ cao (trên 85%) và đội ngũ điều phối không lưu tối ưu."))
-        elif selected_airline == 'United Airlines':
-            reasons.append(("Mạng bay United Airlines", 5, "Hub chính tại Newark (EWR), vận hành quy mô lớn."))
-            
-        for title, weight, desc in reasons:
-            color_badge = "🔴" if weight > 0 else "🟢"
-            st.markdown(f"**{color_badge} {title}** (`{weight:+d}% rủi ro`): {desc}")
-
-        if origin_rain > 20 or origin_gusts > 35:
-            st.error("💡 **Khuyến nghị AI:** Do thời tiết dông bão xấu, quý khách nên chủ động theo dõi bảng điện tử FIDS tại nhà ga hoặc hotline hãng bay.")
-        elif dep_hour >= 18:
-            st.info("💡 **Khuyến nghị AI:** Chuyến bay chiều tối dễ bị trễ tích lũy. Nếu có cuộc hẹn quan trọng sáng hôm sau, nên chọn chuyến bay cất cánh trước **08:30 sáng**.")
-        else:
-            st.info("💡 **Khuyến nghị AI:** Chuyến bay sáng sớm có tỷ lệ cất cánh đúng giờ cao, thời gian làm thủ tục tại quầy diễn ra nhanh chóng.")
+        if severe_alert:
+            st.error("💡 **Khuyến nghị:** mô hình cảnh báo nguy cơ trễ ≥ 30 phút - nên theo dõi thông báo của hãng bay.")
+        elif FDF is not None:
+            early_ontime = (FDF.loc[FDF['hour'] < 9, 'delay_minutes'] < 15).mean() * 100
+            st.info(f"💡 **Khuyến nghị:** dữ liệu 2013 cho thấy chuyến cất cánh trước 9h đúng giờ (trễ < 15 phút) "
+                    f"tới {early_ontime:.1f}%, cao nhất trong ngày.")
 
     st.divider()
 
     # BIỂU ĐỒ DIỄN BIẾN TRỄ THEO 24 KHUNG GIỜ
-    st.subheader(f"📈 Khảo sát Mức độ Trễ qua các Khung giờ trong ngày ({route_label})")
+    st.subheader(f"📈 Dự báo trễ nếu đổi giờ khởi hành ({route_label})")
     
     hours_24 = list(range(6, 24))
-    delays_24 = [
-        float(predict_flight_delay(selected_airline, origin_code, dest_code, selected_aircraft, h, dow_val, target_date.month, origin_temp, origin_rain, origin_wind, origin_gusts)[0])
+    preds_24 = [
+        predict_flight_delay(selected_airline, origin_code, dest_code, selected_aircraft, h, dow_val, target_date.month, origin_temp, origin_rain, origin_wind, origin_gusts)
         for h in hours_24
     ]
+    delays_24 = [p[0] for p in preds_24]
+    probs_24 = [p[1] if p[1] is not None else np.nan for p in preds_24]
 
     fig_24, ax_24 = plt.subplots(figsize=(13, 4.5))
-    ax_24.plot(hours_24, delays_24, marker='o', linewidth=2.5, color='#00558f', label=f"Mức trễ: {selected_airline}")
-    ax_24.axhspan(0, 15, color='#22c55e', alpha=0.15, label="Vùng Đúng giờ (< 15p)")
-    ax_24.axhspan(15, 35, color='#f59e0b', alpha=0.15, label="Vùng Trễ vừa (15 - 35p)")
-    ax_24.axhspan(35, max(65, max(delays_24) + 10), color='#ef4444', alpha=0.15, label="Vùng Trễ nặng (≥ 35p)")
-    
-    if dep_hour in hours_24:
-        idx_h = hours_24.index(dep_hour)
-        ax_24.axvline(dep_hour, color='#dc2626', linestyle='--', linewidth=2, label=f"Giờ bạn chọn ({dep_hour:02d}h)")
-        ax_24.scatter([dep_hour], [delays_24[idx_h]], color='#dc2626', s=120, zorder=5)
+    ax_24.plot(hours_24, delays_24, marker='o', linewidth=2.5, color='#00558f',
+               label="Dự báo số phút trễ (" + ("trung vị" if PREDICTS_MEDIAN else "trung bình") + ")")
+    ax_24.axhline(0, color='gray', linewidth=1)
+    ax_24.set_ylabel("Số phút trễ dự báo", fontsize=11)
+    ax_p = ax_24.twinx()
+    ax_p.plot(hours_24, probs_24, marker='s', linewidth=2, color='#dc2626', label="Xác suất trễ ≥ 30 phút (%)")
+    ax_p.axhline(OVERALL_SEVERE * 100, color='#dc2626', linestyle=':', alpha=0.6, label=f"Trung bình lịch sử ({OVERALL_SEVERE * 100:.1f}%)")
+    ax_p.set_ylabel("Xác suất trễ ≥ 30 phút (%)", fontsize=11, color='#dc2626')
+    ax_p.set_ylim(0, max(60, np.nanmax(probs_24) + 10) if not np.all(np.isnan(probs_24)) else 60)
+    ax_p.grid(False)
 
-    ax_24.set_title(f"Mức độ Trễ chuyến Bình quân theo Khung giờ Khởi hành ({route_label})", fontsize=13, fontweight='bold', pad=10)
+    if dep_hour in hours_24:
+        ax_24.axvline(dep_hour, color='#6b7280', linestyle='--', linewidth=1.5, label=f"Giờ bạn chọn ({dep_hour:02d}h)")
+
+    ax_24.set_title(f"Dự báo của mô hình theo giờ khởi hành ({route_label}; các yếu tố khác giữ nguyên)", fontsize=13, fontweight='bold', pad=10)
     ax_24.set_xlabel("Khung giờ khởi hành (Giờ)", fontsize=11)
-    ax_24.set_ylabel("Số phút trễ dự kiến (phút)", fontsize=11)
     ax_24.set_xticks(hours_24)
     ax_24.set_xticklabels([f"{h:02d}h" for h in hours_24])
     ax_24.grid(True, linestyle=':', alpha=0.6)
-    ax_24.legend(loc='upper left')
+    h1, l1 = ax_24.get_legend_handles_labels()
+    h2, l2 = ax_p.get_legend_handles_labels()
+    ax_24.legend(h1 + h2, l1 + l2, loc='upper left')
     fig_24.tight_layout()
     st.pyplot(fig_24)
 
-    # KHẢO SÁT THỰC NGHIỆM TẬP DỮ LIỆU: NGÀY TRONG TUẦN VS NGÀY CAO ĐIỂM
+    # THỐNG KÊ THEO NGÀY TRONG TUẦN - TÍNH TRỰC TIẾP TỪ DỮ LIỆU
     st.markdown("---")
-    st.markdown(f"#### 📊 Khảo sát Thực nghiệm: Mức độ Trễ Ngày thường vs Ngày cao điểm")
-    st.caption("Thống kê tính toán động 100% từ tập dữ liệu 50,000 chuyến bay thương mại thực tế:")
-    
-    f_df = artifacts['featured_df']
-    dow_cols = st.columns(7)
-    day_titles = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "🔥 Thứ Năm (Đỉnh trễ)", "🔥 Thứ Sáu", "🟢 Thứ Bảy (Ít trễ nhất)", "Chủ Nhật"]
-    
-    for dow_idx in range(7):
-        with dow_cols[dow_idx]:
-            if f_df is not None:
-                sub_dow = f_df[f_df['dayofweek'] == dow_idx]
-                m_delay = sub_dow['delay_minutes'].mean()
-                r_delay = (sub_dow['delay_minutes'] >= 30).mean() * 100
-                st.metric(day_titles[dow_idx], f"{m_delay:.1f}p", f"Trễ ≥30p: {r_delay:.1f}%")
-            else:
-                st.metric(day_titles[dow_idx], "N/A", "N/A")
+    st.markdown("#### 📊 Mức độ trễ theo ngày trong tuần (dữ liệu 2013)")
+    if FDF is not None:
+        by_dow = FDF.groupby('dayofweek')['delay_minutes'].agg(['mean', lambda s: (s >= 30).mean() * 100, 'size'])
+        by_dow.columns = ['mean', 'severe', 'n']
+        worst, best = int(by_dow['mean'].idxmax()), int(by_dow['mean'].idxmin())
+        st.caption(f"Tính trực tiếp từ {len(FDF):,} chuyến bay trong data/processed/featured_flight_dataset.csv")
+        dow_cols = st.columns(7)
+        for dow_idx in range(7):
+            tag = " 🔺" if dow_idx == worst else (" 🟢" if dow_idx == best else "")
+            dow_cols[dow_idx].metric(DAY_NAMES_VN[dow_idx] + tag, f"{by_dow.loc[dow_idx, 'mean']:.1f}p",
+                                     f"Trễ ≥30p: {by_dow.loc[dow_idx, 'severe']:.1f}%", delta_color="off")
 
-    st.info("""
-    📌 **Khám phá Bản chất Dữ liệu Thực nghiệm (EDA Insight từ 50,000 chuyến bay):**  
-    - **Đỉnh điểm trễ trong tuần (Thứ Năm & Thứ Sáu):** Thứ Năm ghi nhận mức trễ bình quân cao nhất tuần (**16.65 phút**, tỷ lệ trễ $\ge 30$p đạt **18.46%**), theo sát là Thứ Sáu (**14.66 phút**, tỷ lệ trễ nặng **17.12%**) do áp lực khách công vụ hoàn thành tuần làm việc và làn sóng đi lại trước cuối tuần.  
-    - **Ngày bay đúng giờ nhất (Thứ Bảy):** Thứ Bảy có mức trễ thấp nhất kỷ lục (chỉ **7.57 phút**, tỷ lệ trễ $\ge 30$p chỉ **10.45%**) nhờ lưu lượng bay giảm và không phận thông thoáng.  
-    - **Quy luật bay sáng sớm:** Tỷ lệ đúng giờ của các chuyến bay trước 08:30 sáng đạt **92.35%**, do chưa tích lũy hiệu ứng trễ dây chuyền từ các chặng bay trước.  
-    - **Sân bay nhạy cảm nhất:** Sân bay Newark (EWR) ghi nhận mức trễ cao nhất (**14.82 phút**) trong cụm 3 sân bay vùng New York.
-    """)
+        before_830 = FDF[(FDF['hour'] * 60 + FDF['minute']) < 8 * 60 + 30]
+        by_origin = FDF.groupby('origin')['delay_minutes'].mean().sort_values(ascending=False)
+        st.info(
+            f"📌 **Nhận xét từ dữ liệu:** {DAY_NAMES_VN[worst]} có mức trễ trung bình cao nhất "
+            f"({by_dow.loc[worst, 'mean']:.2f} phút, {by_dow.loc[worst, 'severe']:.1f}% trễ ≥ 30 phút); "
+            f"{DAY_NAMES_VN[best]} thấp nhất ({by_dow.loc[best, 'mean']:.2f} phút, {by_dow.loc[best, 'severe']:.1f}%). "
+            f"Chuyến cất cánh trước 08:30 đúng giờ (trễ < 15 phút) {(before_830['delay_minutes'] < 15).mean() * 100:.1f}%. "
+            f"Theo sân bay đi: " + ", ".join(f"{o} {v:.2f} phút" for o, v in by_origin.items()) + "."
+        )
 
 
 # ================= TAB 2: KHÁM PHÁ DỮ LIỆU & ĐÁNH GIÁ MÔ HÌNH =================
+FIG_DIR = os.path.join(base_dir, "docs", "figures")
+
+def show_fig(name: str, caption: str):
+    path = os.path.join(FIG_DIR, name)
+    if os.path.exists(path):
+        st.image(path, caption=caption, width='stretch')
+    else:
+        st.caption(f"(Chưa có {name} - chạy src/visualization/eda_plots.py)")
+
 with tab_analytics:
-    st.title("📊 Phân tích Chuyên sâu Dữ liệu & Đánh giá Mô hình Học máy")
-    st.markdown("""
-    Phân hệ trình bày toàn diện 11 biểu đồ trực quan hóa dữ liệu EDA chuyên sâu từ tập dữ liệu thực tế, 
-    bảng đối sánh hiệu năng của 7 mô hình máy học và khảo sát hiện tượng Overfitting theo độ sâu cây.
-    """)
+    st.title("📊 Phân tích Dữ liệu & Đánh giá Mô hình Học máy")
+    st.markdown(f"{N_FIGS} biểu đồ EDA từ dữ liệu thật và kết quả đánh giá {N_MODELS} mô hình hồi quy + bài toán phân loại "
+                "trễ ≥ 30 phút. Mọi số liệu đọc trực tiếp từ các file CSV trong `docs/figures/`.")
 
     sub1, sub2, sub3, sub4 = st.tabs([
-        "1. Chuỗi thời gian & Tự tương quan",
-        "2. Phân bố & Tương quan Khí tượng",
+        "1. Chuỗi thời gian & Mùa vụ",
+        "2. Phân bố & Tương quan",
         "3. Hãng bay, Sân bay & Phân cụm",
-        "4. So sánh Hiệu năng Mô hình & Overfitting"
+        "4. Hiệu năng Mô hình & Overfitting"
     ])
 
     with sub1:
-        st.subheader("Chuỗi Thời Gian & Tính Tự Tương Quan (Serial Correlation Analysis)")
         c_ts1, c_ts2 = st.columns(2)
         with c_ts1:
-            img_c1 = os.path.join(base_dir, "docs", "figures", "task_c1_run_sequence.png")
-            if os.path.exists(img_c1):
-                st.image(img_c1, caption="Run Sequence Plot - Chuỗi thời gian trễ của các chuyến bay liên tiếp", use_container_width=True)
-                st.caption("Khám phá: Mức độ trễ có tính chu kỳ dao động mạnh, các chuyến bay buổi tối thường xuyên chạm ngưỡng trễ cao.")
+            show_fig("task_c1_run_sequence.png", "Run Sequence Plot - chuỗi trễ của các chuyến bay liên tiếp")
         with c_ts2:
-            img_c2 = os.path.join(base_dir, "docs", "figures", "task_c2_lag_plot.png")
-            if os.path.exists(img_c2):
-                st.image(img_c2, caption="Lag Plot (Mức trễ chuyến bay vs Mức trễ mạng bay 1 giờ trước)", use_container_width=True)
-                st.caption("Khám phá: Hệ số tự tương quan Pearson r = 0.292, chứng minh hiện tượng tắc nghẽn dây chuyền của mạng lưới hàng không.")
+            show_fig("task_c2_lag_plot.png", "Lag Plot - trễ của chuyến bay so với trễ TB của sân bay 1 giờ trước")
+            if FDF is not None:
+                r_lag = FDF[['network_delay_lag_1h', 'delay_minutes']].corr().iloc[0, 1]
+                st.caption(f"Hệ số tương quan Pearson r = {r_lag:.3f}: trễ có tính lan truyền theo giờ tại cùng sân bay (tương quan, không khẳng định nhân quả).")
+        show_fig("task_c6_monthly_hub_delay.png", "Mức trễ theo tháng và theo quy mô sân bay đến (dữ liệu Web Crawler)")
 
     with sub2:
-        st.subheader("Phân Bố Trễ & Tương Tác Khí Tượng")
         c_hm1, c_hm2 = st.columns(2)
         with c_hm1:
-            img_c7 = os.path.join(base_dir, "docs", "figures", "task_c7_delay_histogram.png")
-            if os.path.exists(img_c7):
-                st.image(img_c7, caption="Phân bố Mật độ Xác suất Trễ (Histogram & KDE)", use_container_width=True)
+            show_fig("task_c7_delay_histogram.png", "Histogram & KDE số phút trễ")
         with c_hm2:
-            img_c4 = os.path.join(base_dir, "docs", "figures", "task_c4_correlation_heatmap.png")
-            if os.path.exists(img_c4):
-                st.image(img_c4, caption="Ma Trận Hệ Số Tương Quan Pearson", use_container_width=True)
-
+            show_fig("task_c4_correlation_heatmap.png", "Ma trận tương quan Pearson")
         c_hm3, c_hm4 = st.columns(2)
         with c_hm3:
-            img_c3 = os.path.join(base_dir, "docs", "figures", "task_c3_heatmap_24x7.png")
-            if os.path.exists(img_c3):
-                st.image(img_c3, caption="Heatmap Ma Trận Mức Độ Trễ (24 Giờ x 7 Ngày)", use_container_width=True)
+            show_fig("task_c3_heatmap_24x7.png", "Heatmap trễ trung bình (24 giờ x 7 ngày)")
         with c_hm4:
-            img_c5 = os.path.join(base_dir, "docs", "figures", "task_c5_parallel_coordinates.png")
-            if os.path.exists(img_c5):
-                st.image(img_c5, caption="Parallel Coordinates - Đối chiếu Khoảng cách, Mưa, Gió và Trễ", use_container_width=True)
+            show_fig("task_c5_parallel_coordinates.png", "Parallel Coordinates (chuẩn hóa Min-Max)")
 
     with sub3:
-        st.subheader("Phân Tích Hãng Bay, Sân Bay & Phân Cụm K-Means")
         c_cl1, c_cl2 = st.columns(2)
         with c_cl1:
-            img_c8 = os.path.join(base_dir, "docs", "figures", "task_c8_boxplot_airline_airport.png")
-            if os.path.exists(img_c8):
-                st.image(img_c8, caption="Boxplot Mức Trễ theo Hãng Hàng Không & Sân Bay", use_container_width=True)
+            show_fig("task_c8_boxplot_airline_airport.png", "Boxplot trễ theo hãng bay & sân bay đi")
         with c_cl2:
-            img_c9 = os.path.join(base_dir, "docs", "figures", "task_c9_violin_plot.png")
-            if os.path.exists(img_c9):
-                st.image(img_c9, caption="Violin Plot - Mật độ Xác suất Trễ của các Hãng", use_container_width=True)
-
+            show_fig("task_c9_violin_plot.png", "Violin plot trễ theo hãng bay")
         c_cl3, c_cl4 = st.columns(2)
         with c_cl3:
-            img_c10 = os.path.join(base_dir, "docs", "figures", "task_c10_pca_analysis.png")
-            if os.path.exists(img_c10):
-                st.image(img_c10, caption="PCA 2D Projection - Giảm Chiều Không Gian Thuộc Tính", use_container_width=True)
+            show_fig("task_c10_pca_analysis.png", "PCA 2D")
         with c_cl4:
-            img_c11 = os.path.join(base_dir, "docs", "figures", "task_c11_kmeans_elbow.png")
-            if os.path.exists(img_c11):
-                st.image(img_c11, caption="K-Means Elbow Curve - Xác định Số Cụm Tối Ưu (k=3)", use_container_width=True)
+            show_fig("task_c11_kmeans_elbow.png", "K-Means Elbow (chọn k=3)")
 
     with sub4:
-        st.subheader("Bảng Tổng Hợp So Sánh Hiệu Năng Các Mô Hình & Overfitting")
-        if artifacts['metrics'] is not None:
-            st.dataframe(artifacts['metrics'], use_container_width=True, hide_index=True)
-        
-        img_feat = os.path.join(base_dir, "docs", "figures", "task_d6_feature_importance.png")
-        if os.path.exists(img_feat):
-            st.image(img_feat, caption="Top đặc trưng quan trọng nhất trong mô hình XGBoost", use_container_width=True)
-            st.markdown("""
-            **Đánh giá:** Mô hình **XGBoost Regressor** đạt hiệu năng vượt trội với MAE **15.76 phút** trên tập Test thực tế không nén ngoại lai, 
-            độ chính xác phân loại trễ nghiêm trọng $\\ge 30$ phút đạt **$86.8\%$**, vượt trội rõ rệt so với Baseline 1 (Majority Class: 85.5% Acc, F1 0.0) 
-            và Baseline 2 (Naïve Persistence: MAE 20.69p, Acc 80.8%, F1 0.3027).
-            """)
+        st.subheader("Hồi quy số phút trễ - đánh giá 1 lần trên tập Test")
+        mt = artifacts['metrics']
+        if mt is not None:
+            st.dataframe(mt, width='stretch', hide_index=True)
+            best_row = mt.loc[mt['MAE (phút)'].idxmin()]
+            base_row = mt[mt['Mô hình'].str.startswith('Baseline 1')].iloc[0]
+            st.markdown(
+                f"**Nhận xét:** {best_row['Mô hình']} có MAE thấp nhất ({best_row['MAE (phút)']:.2f} phút, "
+                f"R² = {best_row['R2 Score']:.3f}), tốt hơn baseline hằng số ({base_row['MAE (phút)']:.2f} phút). "
+                "R² vẫn thấp vì phân phối trễ có đuôi rất dài (một số chuyến trễ hàng trăm phút) mà các đặc trưng hiện có không giải thích được.")
+
+        st.subheader("Phân loại trễ ≥ 30 phút - tập Test")
+        if artifacts['cls_metrics'] is not None:
+            st.dataframe(artifacts['cls_metrics'], width='stretch', hide_index=True)
+            st.caption("Lớp 'trễ ≥ 30 phút' chỉ chiếm khoảng 14.5% tập Test nên Accuracy dễ gây hiểu nhầm "
+                       "(luôn đoán 'không trễ' đã đạt ~85%); nên so sánh bằng F1, ROC-AUC và PR-AUC.")
+        if artifacts['calibration'] is not None:
+            st.markdown("**Hiệu chỉnh xác suất (Isotonic, fit trên Validation):**")
+            st.dataframe(artifacts['calibration'], width='stretch', hide_index=True)
+
+        show_fig("task_d6_feature_importance.png", "Top đặc trưng quan trọng của mô hình XGBoost đã chọn")
 
         st.divider()
-        st.subheader("Thực nghiệm Khảo sát Hiện tượng Quá khớp (Overfitting Analysis)")
-        img_overfit = os.path.join(base_dir, "docs", "figures", "task_d5_overfitting_analysis.png")
-        if os.path.exists(img_overfit):
-            col_ov_img, col_ov_txt = st.columns([3, 2])
-            with col_ov_img:
-                st.image(img_overfit, caption="Đường cong sai số Training vs Validation Error theo độ sâu mô hình cây", use_container_width=True)
-            with col_ov_txt:
-                st.markdown("""
-                ##### 🔍 Ba vùng đặc trưng trong thực nghiệm:
-                1. **Vùng Thiếu khớp (Underfitting, max_depth < 4):** Cả sai số Train và Validation đều cao do mô hình quá đơn giản.
-                2. **Điểm Dung lượng Tối ưu (Optimal, max_depth = 5 - 8):** Sai số Validation đạt cực tiểu (MAE thấp nhất), đạt sự cân bằng Bias - Variance hoàn hảo.
-                3. **Vùng Quá khớp (Overfitting, max_depth > 10):** Sai số Train tiếp tục giảm tiệm cận 0 trong khi sai số Validation phân kỳ tăng trở lại do mô hình học nhiễu ngẫu nhiên.
-                """)
+        st.subheader("Thực nghiệm Overfitting (Train vs. Validation theo độ sâu cây)")
+        col_ov_img, col_ov_txt = st.columns([3, 2])
+        with col_ov_img:
+            show_fig("task_d5_overfitting_analysis.png", "MAE Train vs. Validation theo max_depth")
+        with col_ov_txt:
+            oc = artifacts['overfit_curve']
+            if oc is not None:
+                best = oc.loc[oc['val_mae'].idxmin()]
+                deepest = oc.iloc[-1]
+                st.markdown(
+                    f"- Validation MAE thấp nhất tại **max_depth = {int(best['max_depth'])}** ({best['val_mae']:.2f} phút).\n"
+                    f"- Độ sâu nhỏ hơn: cả Train và Val đều cao (underfitting).\n"
+                    f"- Tại max_depth = {int(deepest['max_depth'])}: Train MAE {deepest['train_mae']:.2f} nhưng Val MAE {deepest['val_mae']:.2f} "
+                    "- khoảng cách Train/Val lớn là dấu hiệu overfitting.")
+                st.dataframe(oc, hide_index=True, width='stretch')

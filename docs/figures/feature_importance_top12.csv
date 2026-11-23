@@ -1,0 +1,13 @@
+,importance
+network_delay_rolling_3h,0.0896
+carrier_B6,0.0767
+hour_cos,0.0613
+origin_JFK,0.0476
+hour_sin,0.0365
+carrier_EV,0.0301
+flight_load_cluster,0.0296
+carrier_Other,0.0265
+dest_BOS,0.0248
+carrier_US,0.0247
+carrier_WN,0.022
+is_rain,0.022

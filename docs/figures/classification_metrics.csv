@@ -1,0 +1,6 @@
+Mô hình,Cấu hình (chọn trên Val),Accuracy (%),Precision,Recall,F1-Score,ROC-AUC,PR-AUC
+Baseline 1 (Luôn đoán lớp đa số: không trễ),,85.5,0.0,0.0,0.0,,
+Baseline 2 (Persistence ≥ 30p),,82.8,0.3704,0.2693,0.3119,0.6767,0.3057
+XGBoost (absolute error) - ngưỡng 30p,hồi quy rồi cắt ngưỡng,87.3,0.6744,0.2417,0.3559,0.785,0.4743
+XGBClassifier (ngưỡng 0.5),"max_depth=6, lr=0.03, số cây=155, scale_pos_weight=5.10",80.3,0.3794,0.5625,0.4532,0.7923,0.4752
+XGBClassifier (ngưỡng 0.54 tối ưu F1 trên Val),"max_depth=6, lr=0.03, số cây=155, scale_pos_weight=5.10, ngưỡng=0.54",82.2,0.4111,0.5294,0.4628,0.7923,0.4752

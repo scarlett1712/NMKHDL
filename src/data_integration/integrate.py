@@ -9,7 +9,11 @@ Tuân thủ kiến trúc Hệ tích hợp ảo (Virtual Data Integration):
 """
 
 import os
+import sys
 import pandas as pd
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from src.preprocessing.splits import sort_chronologically
 
 class FlightWrapper:
     """Wrapper chuyển đổi nguồn dữ liệu chuyến bay thực tế sang Lược đồ trung gian."""
@@ -31,11 +35,36 @@ class AirportWeatherWrapper:
         ]
         return df[selected_cols]
 
+class AirportTrafficWrapper:
+    """Wrapper cho nguồn Web Crawler: quy mô sân bay đến (hub tier, lượt khách lên máy bay)."""
+    REFERENCE_YEAR = 2016  # Năm cũ nhất có trên Wikipedia, gần 2013 nhất
+
+    @classmethod
+    def attach(cls, df: pd.DataFrame, path: str) -> pd.DataFrame:
+        if not os.path.exists(path):
+            print(f"[Task A3] Cảnh báo: chưa có {path} (chạy web_crawler.py trước) - bỏ qua nguồn này.")
+            return df
+        traffic = pd.read_csv(path)
+        traffic = traffic[['iata', 'hub_tier', f'enplanements_{cls.REFERENCE_YEAR}']].rename(columns={
+            'iata': 'dest',
+            'hub_tier': 'dest_hub_tier',
+            f'enplanements_{cls.REFERENCE_YEAR}': 'dest_enplanements_m'
+        })
+        traffic['dest_enplanements_m'] = (traffic['dest_enplanements_m'] / 1e6).round(3)
+        out = df.merge(traffic, on='dest', how='left')
+        # Sân bay không có trong danh sách large/medium hub: hub_tier = 0, lượt khách = 0 (dưới ngưỡng medium hub)
+        out['dest_hub_tier'] = out['dest_hub_tier'].fillna(0).astype(int)
+        out['dest_enplanements_m'] = out['dest_enplanements_m'].fillna(0.0)
+        print(f"[Task A3] Đã ghép dữ liệu Web Crawler: {(out['dest_hub_tier'] > 0).mean() * 100:.1f}% chuyến bay có sân bay đến là hub")
+        return out
+
 class DataIntegrationEngine:
     def __init__(self, flights_path: str = "data/raw/flights_stream.csv",
-                 weather_path: str = "data/raw/weather_stream.csv"):
+                 weather_path: str = "data/raw/weather_stream.csv",
+                 airport_traffic_path: str = "data/raw/crawled_us_airport_traffic.csv"):
         self.flights_path = flights_path
         self.weather_path = weather_path
+        self.airport_traffic_path = airport_traffic_path
 
     def integrate(self, output_path: str = "data/processed/integrated_flight_weather.csv") -> pd.DataFrame:
         print("[Task A3] Đang nạp và hợp nhất 2 nguồn dữ liệu THẬT qua Wrappers...")
@@ -59,17 +88,20 @@ class DataIntegrationEngine:
         )
 
         # Đổi tên các trường thời tiết sang tiền tố origin_
-        integrated_df.rename(columns={
+        integrated_df = integrated_df.rename(columns={
             'temp_celsius': 'origin_temp_c',
             'precipitation_mm': 'origin_rain_mm',
             'wind_speed_kmh': 'origin_wind_kmh',
             'wind_gusts_kmh': 'origin_gusts_kmh',
             'visibility_km': 'origin_visibility_km',
             'weather_condition': 'origin_weather'
-        }, inplace=True)
+        })
 
-        # Sắp xếp theo dòng thời gian cất cánh
-        integrated_df = integrated_df.sort_values(by='dep_timestamp').reset_index(drop=True)
+        # 4. Hợp nhất nguồn thứ 3 - dữ liệu cào từ Web (Wikipedia/FAA) theo khóa sân bay đến (dest = IATA)
+        integrated_df = AirportTrafficWrapper.attach(integrated_df, self.airport_traffic_path)
+
+        # Sắp xếp theo dòng thời gian cất cánh (ổn định, dùng chung quy ước với các bước sau)
+        integrated_df = sort_chronologically(integrated_df)
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         integrated_df.to_csv(output_path, index=False)

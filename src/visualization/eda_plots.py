@@ -7,7 +7,7 @@ Bao gồm đầy đủ các đồ thị chuẩn mực của môn Khoa học Dữ
 3. Heatmap 24 giờ x 7 ngày: Ma trận nhiệt trễ chuyến
 4. Correlation Heatmap Pearson: Ma trận tương quan các thuộc tính khí tượng & vận hành
 5. Parallel Coordinates Plot: Tọa độ song song đa chiều
-6. Dynamic Pricing Curve: Đường cong định giá vé động theo ngày đặt trước
+6. Monthly & Hub Delay: Mức trễ theo tháng và theo quy mô sân bay đến (dữ liệu Web Crawler)
 7. Histogram & KDE: Phân bố tần suất thời gian trễ (delay_minutes)
 8. Boxplot: Phân bố trễ theo Hãng hàng không & Sân bay xuất phát
 9. Violin Plot: Mật độ xác suất trễ theo Hãng hàng không
@@ -16,6 +16,7 @@ Bao gồm đầy đủ các đồ thị chuẩn mực của môn Khoa học Dữ
 """
 
 import os
+import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -24,6 +25,9 @@ from pandas.plotting import parallel_coordinates
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from src.preprocessing.cleaner import DataCleaner
 
 plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
 plt.rcParams['font.sans-serif'] = 'Arial'
@@ -99,7 +103,7 @@ def plot_correlation_heatmap(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> pl
         'origin_gusts_kmh': 'Gió giật (km/h)',
         'origin_visibility_km': 'Tầm nhìn (km)'
     }
-    corr_matrix.rename(index=col_names, columns=col_names, inplace=True)
+    corr_matrix = corr_matrix.rename(index=col_names, columns=col_names)
     fig, ax = plt.subplots(figsize=(9, 7))
     sns.heatmap(corr_matrix, annot=True, fmt=".2f", cmap='coolwarm', vmin=-1, vmax=1, linewidths=0.5, ax=ax)
     ax.set_title("Task C4: Ma trận Tương quan Tuyến tính Pearson (Dữ liệu Thật)", fontsize=13, fontweight='bold', pad=12)
@@ -114,8 +118,7 @@ def plot_parallel_coordinates(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> p
     sample_df = df[cols_parallel].sample(n=min(400, len(df)), random_state=42).copy()
     norm_cols = ['distance', 'origin_rain_mm', 'origin_gusts_kmh', 'delay_minutes']
     for c in norm_cols:
-        denom = (sample_df[c].max() - sample_df[c].min())
-        sample_df[c] = (sample_df[c] - sample_df[c].min()) / (denom if denom != 0 else 1.0)
+        sample_df[c] = DataCleaner.min_max_scale(sample_df[c])  # Task B3: Min-Max Scaling về [0, 1]
     fig, ax = plt.subplots(figsize=(11, 5))
     parallel_coordinates(sample_df, 'delay_status', color=['#2ca02c', '#ff7f0e', '#d62728'], alpha=0.4, ax=ax)
     ax.set_title("Task C5: Biểu đồ Tọa độ Song song (Parallel Coordinates)", fontsize=13, fontweight='bold', pad=12)
@@ -123,6 +126,40 @@ def plot_parallel_coordinates(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> p
     ax.grid(True, linestyle='--', alpha=0.5)
     fig.tight_layout()
     fig.savefig(os.path.join(save_dir, "task_c5_parallel_coordinates.png"), dpi=300)
+    plt.close(fig)
+    return fig
+
+def plot_monthly_and_hub_delay(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> plt.Figure:
+    """Task C6: Mức trễ theo tháng (mùa vụ) và theo quy mô sân bay đến (dữ liệu Web Crawler)."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    by_month = df.groupby('month').agg(mean_delay=('delay_minutes', 'mean'),
+                                       severe=('is_delayed_30', 'mean')).reset_index()
+    ax = axes[0]
+    ax.bar(by_month['month'], by_month['mean_delay'], color='#1f77b4', alpha=0.85, label='Trễ trung bình (phút)')
+    ax.set_xticks(range(1, 13))
+    ax.set_xlabel("Tháng (năm 2013)", fontsize=10)
+    ax.set_ylabel("Trễ trung bình (phút)", fontsize=10)
+    ax2 = ax.twinx()
+    ax2.plot(by_month['month'], by_month['severe'] * 100, 'o-', color='#d62728', linewidth=2, label='% trễ ≥ 30 phút')
+    ax2.set_ylabel("% chuyến trễ ≥ 30 phút", fontsize=10, color='#d62728')
+    ax2.grid(False)
+    ax.set_title("Mức trễ theo tháng", fontsize=12, fontweight='bold')
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc='upper left')
+
+    if 'dest_hub_tier' in df.columns:
+        tier_names = {0: 'Không phải hub\nlớn/vừa', 1: 'Medium hub', 2: 'Large hub'}
+        by_hub = df.groupby('dest_hub_tier').agg(mean_delay=('delay_minutes', 'mean'), n=('delay_minutes', 'size')).reset_index()
+        labels = [f"{tier_names.get(t, t)}\n(n={n:,})" for t, n in zip(by_hub['dest_hub_tier'], by_hub['n'])]
+        axes[1].bar(labels, by_hub['mean_delay'], color=['#9ca3af', '#f59e0b', '#16a34a'][:len(by_hub)])
+        axes[1].set_title("Trễ trung bình theo quy mô sân bay đến (FAA, Wikipedia)", fontsize=12, fontweight='bold')
+        axes[1].set_ylabel("Trễ trung bình (phút)", fontsize=10)
+
+    fig.suptitle("Task C6: Mùa vụ và Quy mô Sân bay đến", fontsize=13, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(os.path.join(save_dir, "task_c6_monthly_hub_delay.png"), dpi=300)
     plt.close(fig)
     return fig
 
@@ -189,7 +226,7 @@ def plot_pca_analysis(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> plt.Figur
     pca = PCA(n_components=2, random_state=42)
     components = pca.fit_transform(X_scaled)
 
-    sample_idx = np.random.choice(len(components), size=min(1500, len(components)), replace=False)
+    sample_idx = np.random.default_rng(42).choice(len(components), size=min(1500, len(components)), replace=False)
     fig, ax = plt.subplots(figsize=(8, 6))
     scatter = ax.scatter(components[sample_idx, 0], components[sample_idx, 1],
                          c=df.loc[sample_idx, 'delay_minutes'].clip(lower=-15, upper=120), cmap='viridis', alpha=0.6, s=18)
@@ -208,7 +245,7 @@ def plot_pca_analysis(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> plt.Figur
 def plot_kmeans_elbow(df: pd.DataFrame, save_dir: str = FIGURE_DIR) -> plt.Figure:
     """Task C11: Biểu đồ Elbow lựa chọn tối ưu số cụm k cho K-Means."""
     X = StandardScaler().fit_transform(df[['hour', 'distance']].dropna())
-    sample_X = X[np.random.choice(len(X), size=min(4000, len(X)), replace=False)]
+    sample_X = X[np.random.default_rng(42).choice(len(X), size=min(4000, len(X)), replace=False)]
     inertias = []
     k_range = list(range(1, 8))
     for k in k_range:
@@ -237,6 +274,7 @@ def generate_all_eda_plots(featured_path: str = "data/processed/featured_flight_
     plot_hourly_weekly_heatmap(df)
     plot_correlation_heatmap(df)
     plot_parallel_coordinates(df)
+    plot_monthly_and_hub_delay(df)
     plot_delay_distribution(df)
     plot_boxplot_by_airline_and_airport(df)
     plot_violin_delay(df)

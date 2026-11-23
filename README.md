@@ -1,130 +1,102 @@
-# ✈️ FLIGHT DELAY PREDICTION PIPELINE: DỰ BÁO NGUY CƠ TRỄ CHUYẾN BAY THƯƠNG MẠI
+# ✈️ FLIGHT DELAY PREDICTION: DỰ BÁO TRỄ CHUYẾN BAY THƯƠNG MẠI TỪ DỮ LIỆU THỰC TẾ
 
-> **Dự án Môn học:** Nhập môn Khoa học Dữ liệu (IT4930)  
-> **Trường:** Trường Công nghệ Thông tin và Truyền thông - Đại học Bách Khoa Hà Nội (SoICT - HUST)  
-> **Tập dữ liệu:** 100% Dữ liệu quan sát thực tế gồm 50,000 chuyến bay thương mại (US Bureau of Transportation Statistics) kết nối qua 3 trung tâm hàng không lớn: John F. Kennedy (JFK), Newark Liberty (EWR), LaGuardia (LGA) kết hợp 8,719 bản ghi khí tượng trạm quan trắc quốc gia NOAA.
-
----
-
-## 📌 1. Giới thiệu Bài toán & Bối cảnh
-
-Ngành hàng không thương mại hiện đại vận hành với mật độ dày đặc, nơi hiện tượng chậm chuyến bay (Flight Delay) gây ra tổn thất lớn về kinh tế và tạo áp lực dây chuyền lên kiểm soát viên không lưu. Dự án này xây dựng một hệ thống phân tích và dự báo hoàn chỉnh từ dữ liệu thực tế:
-1. **Dự báo Số phút Trễ chuyến bay (Flight Delay Regression):** Dự đoán chính xác số phút trễ cất cánh (`dep_delay`) dựa trên khung giờ bay, ngày trong tuần, hãng hàng không, khoảng cách bay và điều kiện khí tượng thời gian thực từ trạm thời tiết sân bay.
-2. **Cảnh báo Nguy cơ Trễ nghiêm trọng (Severe Delay Risk Classification):** Phân loại xác suất chuyến bay bị trễ $\ge 30$ phút bằng mô hình học máy `delay_classifier.pkl` để kích hoạt khuyến nghị sớm cho hành khách.
-3. **Phân tích Khám phá Dữ liệu Lớn & Chuỗi Thời gian (EDA):** Khảo sát hiện tượng trễ lan truyền dây chuyền (Knock-on delay), phân tích tự tương quan ($r=0.292$) và phân cụm tải bay bằng K-Means chuẩn hóa.
+> **Môn học:** Nhập môn Khoa học Dữ liệu (IT4930 / IT4142) - Trường CNTT&TT, Đại học Bách Khoa Hà Nội (SoICT - HUST)
+> **Dữ liệu:** 50.000 chuyến bay thương mại thực tế năm 2013 khởi hành từ 3 sân bay New York (JFK, EWR, LGA) - gói nycflights13 (trích từ US Bureau of Transportation Statistics), kết hợp quan trắc thời tiết theo giờ (ASOS/NOAA) và dữ liệu quy mô sân bay cào từ Wikipedia (số liệu FAA).
 
 ---
 
-## 🏗️ 2. Cấu trúc Dự án
+## 📌 1. Bài toán
+
+1. **Hồi quy:** dự báo số phút trễ cất cánh (`dep_delay`) từ thông tin biết trước khi bay: lịch bay, hãng, sân bay đi/đến, khoảng cách, thời tiết tại sân bay đi, mức trễ của sân bay ở các giờ trước.
+2. **Phân loại:** cảnh báo chuyến bay có nguy cơ trễ ≥ 30 phút (lớp thiểu số, ~15% số chuyến).
+3. **Phân tích khám phá (EDA):** quy luật trễ theo giờ, ngày, tháng, sân bay, hãng bay, thời tiết.
+
+## 🗂️ 2. Ba nguồn dữ liệu
+
+| Nguồn | Cách thu thập | Nội dung |
+|---|---|---|
+| Chuyến bay | File gốc `nyc_flights_raw.csv` (nycflights13 `flights`, 336.776 chuyến) | Lấy mẫu đều 50.000 chuyến theo thời gian |
+| Thời tiết | Tải qua HTTP từ Rdatasets (nycflights13 `weather`, bản CRAN hiện hành) | 26.115 quan trắc theo giờ, đủ cả JFK / EWR / LGA |
+| Quy mô sân bay đến | **Web Crawler** (`requests` + `BeautifulSoup`) cào Wikipedia *List of the busiest airports in the United States* | 65 sân bay large/medium hub, số lượt khách lên máy bay (FAA) |
+
+Ba nguồn được tích hợp qua Mediated Schema: thời tiết ghép theo `(origin, year, month, day, hour)`, quy mô sân bay ghép theo `dest`.
+
+## 🏗️ 3. Cấu trúc dự án
 
 ```
-KHDL/
-│
+NMKHDL/
 ├── data/
-│   ├── raw/                              # Dữ liệu thô thực tế thu thập từ kho hàng không & NOAA
-│   │   ├── nyc_flights_raw.csv           # 336,776 chuyến bay thương mại gốc
-│   │   ├── nyc_weather_raw.csv           # 8,719 giờ thời tiết trạm quan trắc NOAA
-│   │   ├── flights_stream.csv            # 50,000 chuyến bay theo chuỗi thời gian
-│   │   └── weather_stream.csv            # Chuỗi thời tiết chuyển đổi đơn vị metric
-│   └── processed/                        # Dữ liệu qua tích hợp, làm sạch và tạo đặc trưng
-│       ├── integrated_flight_weather.csv # Dữ liệu tích hợp qua Mediated Schema
-│       ├── cleaned_flight_data.csv       # Dữ liệu sau xử lý khuyết & ngoại lai
-│       └── featured_flight_dataset.csv   # Tập đặc trưng 66 chiều hoàn chỉnh
-│
-├── notebooks/                            # Jupyter Notebook chạy toàn bộ pipeline có outputs
-│   └── Flight_Delay_Prediction_Pipeline.ipynb
-│
-├── src/                                  # Toàn bộ mã nguồn cốt lõi (Core Pipeline)
-│   ├── data_collection/                  # Thu thập dữ liệu & Web Crawler
-│   │   ├── fetch_flights.py
-│   │   ├── fetch_weather_api.py
-│   │   └── web_crawler.py
-│   ├── data_integration/                 # Kiến trúc tích hợp Mediated Schema & Wrappers
-│   │   └── integrate.py
-│   ├── preprocessing/                    # Làm sạch chống rò rỉ, thống kê đơn biến, tạo đặc trưng
-│   │   ├── cleaner.py
-│   │   └── feature_engineering.py
-│   ├── visualization/                    # Đồ thị trực quan hóa dữ liệu EDA (11 biểu đồ)
-│   │   └── eda_plots.py
-│   └── models/                           # Huấn luyện mô hình, kiểm soát Overfitting, lưu model
-│       └── train_evaluate.py
-│
-├── models_saved/                         # Trọng số mô hình và scaler đã đóng gói (joblib)
-│   ├── best_model_xgb.pkl                # Mô hình hồi quy tối ưu XGBoost
-│   ├── delay_classifier.pkl              # Mô hình phân loại nguy cơ trễ >= 30p
-│   ├── model_rf.pkl                      # Random Forest
-│   ├── model_ridge.pkl                   # Ridge Regression (L2)
-│   ├── model_lasso.pkl                   # Lasso Regression (L1)
-│   ├── kmeans_model.pkl                  # K-Means clustering (k=3)
-│   ├── kmeans_scaler.pkl                 # Scaler cho K-Means
-│   ├── scaler.pkl                        # StandardScaler cho tập Train
-│   └── feature_cols.pkl                  # Danh sách đặc trưng chuẩn hóa
-│
-├── app/                                  # Ứng dụng Web Dashboard tương tác Streamlit
-│   └── app.py
-│
-├── docs/                                 # Báo cáo kỹ thuật và hình ảnh biểu đồ
-│   ├── figures/                          # Toàn bộ 11 biểu đồ EDA và đồ thị Overfitting
-│   └── BAO_CAO_BAI_TAP_LON.md            # Báo cáo khoa học chi tiết
-│
-├── requirements.txt                      # Danh sách các thư viện phụ thuộc
-├── readme.txt                            # Hướng dẫn nhanh
-└── README.md
+│   ├── raw/          nyc_flights_raw.csv, nyc_weather_raw.csv, flights_stream.csv, weather_stream.csv,
+│   │                 wiki_busiest_us_airports.html (trang gốc đã cào), crawled_us_airport_traffic.csv
+│   └── processed/    integrated_flight_weather.csv, cleaned_flight_data.csv, featured_flight_dataset.csv
+├── notebooks/        Flight_Delay_Prediction_Pipeline.ipynb  (chạy toàn bộ pipeline, có output)
+├── src/
+│   ├── data_collection/   fetch_flights.py, fetch_weather_api.py, web_crawler.py
+│   ├── data_integration/  integrate.py          (Wrappers + Mediated Schema)
+│   ├── preprocessing/     splits.py, cleaner.py, feature_engineering.py
+│   ├── visualization/     eda_plots.py          (11 biểu đồ EDA)
+│   └── models/            train_evaluate.py     (huấn luyện, chọn tham số trên Val, đánh giá Test)
+├── models_saved/     best_model_xgb.pkl, delay_classifier.pkl, classifier_calibrator.pkl, ...
+├── app/app.py        Web Dashboard Streamlit
+└── docs/             BAO_CAO_BAI_TAP_LON.md, figures/ (biểu đồ + các bảng kết quả .csv)
 ```
 
----
+## 📊 4. Kết quả (tập Test: 7.500 chuyến, 06/11 - 31/12/2013, đánh giá một lần)
 
-## 📊 3. Kết quả Thực nghiệm & Đánh giá Mô hình
+Chia dữ liệu tuần tự theo thời gian Train 70% / Validation 15% / Test 15%. Mọi siêu tham số được chọn trên Validation. Median điền khuyết, K-Means, StandardScaler, biên IQR chỉ được fit trên Train.
 
-### Bảng so sánh hiệu năng các mô hình máy học (Kiểm thử độc lập trên Test Set):
+### Hồi quy số phút trễ (`docs/figures/model_comparison_metrics.csv`)
 
-| STT | Mô hình Thử nghiệm | MAE (Phút) | RMSE (Phút) | $R^2\text{ Score}$ | Accuracy ($\ge 30$p) | $F_1\text{-Score}$ | Nhận xét |
-| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| 1 | **Baseline 1 (Majority Class / Zero-Rule)** | 16.68 | 37.56 | -0.1054 | 85.5% | 0.0000 | Cận dưới đối chứng |
-| 2 | **Baseline 2 (Naïve Persistence)** | 20.69 | 40.10 | -0.2596 | 80.8% | 0.3027 | Trễ mạng bay giờ trước ($t-1$) |
-| 3 | **Linear Regression** | 17.23 | 34.46 | 0.0696 | 85.5% | 0.0128 | Hồi quy tuyến tính đa biến |
-| 4 | **Ridge Regression ($L_2$, $\alpha=100.0$)** | 17.24 | 34.46 | 0.0700 | 85.6% | 0.0146 | Co hẹp tham số $L_2$ qua RidgeCV |
-| 5 | **Lasso Regression ($L_1$, $\alpha=0.1$)** | 17.29 | 34.47 | 0.0692 | 85.5% | 0.0127 | Phạt thưa thớt qua LassoCV |
-| 6 | **Random Forest Regressor** | 16.36 | 33.65 | 0.1127 | 86.4% | 0.1705 | Mô hình Ensemble Bagging |
-| 7 | **XGBoost Regressor (Tối ưu)** | **15.76** | **33.43** | **0.1243** | **86.8%** | **0.2171** | **Mô hình vượt trội toàn diện** |
+| Mô hình | MAE (phút) | RMSE (phút) | R² |
+|---|:---:|:---:|:---:|
+| Baseline 1: hằng số = median Train (−1 phút) | 16.63 | 37.88 | −0.124 |
+| Baseline 2: Naïve Persistence (trễ TB sân bay giờ trước) | 18.68 | 36.61 | −0.050 |
+| Linear / Ridge (α=0.1) / Lasso (α=0.001) | 16.27 | 34.44 | 0.071 |
+| Random Forest | 16.14 | 33.47 | 0.122 |
+| XGBoost (squared error) | 15.52 | 33.56 | 0.118 |
+| **XGBoost (absolute error)** | **14.76** | **31.82** | **0.207** |
 
-### Phát hiện Thực nghiệm từ Dữ liệu Thật (EDA Insights):
-- **Đỉnh điểm trễ trong tuần (Thứ Năm & Thứ Sáu):** Thứ Năm có mức trễ bình quân cao nhất tuần (**16.65 phút**, tỷ lệ trễ $\ge 30$p đạt **18.46%**), theo sát là Thứ Sáu (**14.66 phút**, tỷ lệ trễ nặng **17.12%**) do áp lực khách công vụ kết thúc tuần làm việc và lượng người đi du lịch sớm. Ngược lại, Thứ Bảy là ngày bay đúng giờ nhất tuần (trễ trung bình chỉ **7.57 phút**, trễ nặng chỉ **10.45%**).
-- **Quy luật bay sáng sớm:** Tỷ lệ cất cánh đúng giờ (trễ $< 15$ phút) của các chuyến bay trước 08:30 sáng đạt **92.35%**, do chưa tích lũy hiệu ứng trễ dây chuyền từ các chuyến bay trước trong ngày.
-- **Sân bay nhạy cảm với trễ:** Sân bay Newark Liberty (EWR) ghi nhận mức trễ trung bình cao nhất (**14.82 phút**), trong khi JFK là **11.79 phút** và LaGuardia là **10.66 phút**.
-- **Tự tương quan chuỗi thời gian:** Hệ số tương quan bậc 1 đạt $r = 0.292$ trên Lag Plot, chứng minh mức độ trễ của sân bay ở giờ trước tác động trực tiếp đến các chuyến bay cất cánh ở giờ kế tiếp.
+### Phân loại trễ ≥ 30 phút (`docs/figures/classification_metrics.csv`)
 
----
+| Mô hình | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Baseline: luôn đoán "không trễ" | 85.5% | 0 | 0 | 0 | - |
+| Baseline: Persistence ≥ 30 phút | 82.8% | 0.370 | 0.269 | 0.312 | 0.677 |
+| **XGBClassifier (cân bằng lớp, ngưỡng 0.54 chọn trên Val)** | 82.2% | 0.411 | 0.529 | **0.463** | **0.792** |
 
-## 🚀 4. Hướng dẫn Chạy Hệ thống
+Lớp "trễ ≥ 30 phút" chỉ chiếm 14.5% tập Test nên Accuracy không phản ánh đúng chất lượng; nên đọc F1 và ROC-AUC. Xác suất của bộ phân loại được hiệu chỉnh bằng Isotonic Regression trên Validation (Brier score 0.145 → 0.101).
 
-### Cài đặt môi trường:
+### Một số phát hiện từ dữ liệu
+- Chuyến cất cánh trước 08:30 đúng giờ (trễ < 15 phút) **93.0%**, so với 77.8% của toàn bộ dữ liệu; trễ tăng dần theo giờ trong ngày.
+- Thứ Năm trễ nhiều nhất (16.65 phút, 18.5% trễ ≥ 30 phút), Thứ Bảy ít nhất (7.57 phút, 10.4%).
+- Mùa vụ rõ rệt: tháng 6-7 và tháng 12 trễ cao nhất, tháng 9-11 thấp nhất.
+- Thời tiết: chuyến bay khi trời mưa trễ TB 27.2 phút, mưa dông 34.8 phút, so với 11.3 phút khi trời quang.
+- EWR trễ trung bình cao nhất (14.82 phút), sau đó JFK (11.79) và LGA (10.66).
+
+### Giới hạn
+Dữ liệu chỉ có năm 2013 và 3 sân bay NYC; R² thấp vì phân phối trễ có đuôi rất dài (tối đa 960 phút); tập Test (tháng 11-12) khác mùa với tập Train (tháng 1-9); bảng Wikipedia chỉ có số liệu từ 2016 nên dùng năm 2016 làm đại diện quy mô sân bay đến.
+
+## 🚀 5. Hướng dẫn chạy
+
 ```bash
 pip install -r requirements.txt
-```
 
-### Chạy toàn bộ Pipeline:
-```bash
-# 1. Thu thập dữ liệu chuyến bay & quan trắc thời tiết thực tế
+# 1. Thu thập dữ liệu
 python src/data_collection/fetch_flights.py
-python src/data_collection/fetch_weather_api.py
+python src/data_collection/fetch_weather_api.py        # tự tải thời tiết nếu chưa có; --refresh để tải lại
+python src/data_collection/web_crawler.py              # cào Wikipedia; --offline để dùng HTML đã lưu
 
-# 2. Tích hợp dữ liệu qua Mediated Schema & Wrappers
+# 2. Tích hợp, làm sạch, tạo đặc trưng
 python src/data_integration/integrate.py
-
-# 3. Làm sạch dữ liệu chống rò rỉ & Trích xuất đặc trưng
 python src/preprocessing/cleaner.py
 python src/preprocessing/feature_engineering.py
 
-# 4. Trực quan hóa 11 biểu đồ EDA
+# 3. Biểu đồ EDA và huấn luyện mô hình
 python src/visualization/eda_plots.py
-
-# 5. Huấn luyện mô hình, kiểm soát Overfitting và lưu weights
 python src/models/train_evaluate.py
+
+# 4. Web Dashboard
+streamlit run app/app.py                               # http://localhost:8501
 ```
 
-### Khởi chạy Ứng dụng Web Dashboard:
-```bash
-streamlit run app/app.py
-```
-Mở trình duyệt tại: **http://localhost:8501**
+Hoặc mở `notebooks/Flight_Delay_Prediction_Pipeline.ipynb` để chạy toàn bộ pipeline trong một notebook (cần thêm `jupyter`).

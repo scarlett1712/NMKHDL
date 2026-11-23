@@ -1,8 +1,9 @@
-Mô hình,MAE (phút),RMSE (phút),R2 Score,Accuracy (≥30p),F1-Score
-Baseline 1 (Majority Class / Zero-Rule),16.68,37.56,-0.1054,85.5,0.0
-Baseline 2 (Naïve Persistence),20.69,40.1,-0.2596,80.8,0.3027
-Linear Regression,17.23,34.46,0.0696,85.5,0.0128
-"Ridge Regression (L2, alpha=100.0)",17.24,34.46,0.07,85.6,0.0146
-"Lasso Regression (L1, alpha=0.1)",17.29,34.47,0.0692,85.5,0.0127
-Random Forest Regressor,16.36,33.65,0.1127,86.4,0.1705
-XGBoost Regressor (Tối ưu),15.76,33.43,0.1243,86.8,0.2171
+Mô hình,Cấu hình (chọn trên Val),MAE (phút),RMSE (phút),R2 Score,Accuracy (≥30p),F1-Score
+Baseline 1 (Hằng số = Median Train),dự báo -1 phút,16.63,37.88,-0.1244,85.5,0.0
+Baseline 2 (Naïve Persistence),trễ TB sân bay giờ trước,18.68,36.61,-0.0501,82.8,0.3119
+Linear Regression,nén y_train=có,16.27,34.44,0.0706,85.9,0.0702
+Ridge Regression (L2),"alpha=0.1, nén y_train=có",16.27,34.44,0.0706,85.9,0.0702
+Lasso Regression (L1),"alpha=0.001, nén y_train=có, 1/51 hệ số = 0",16.27,34.43,0.0711,85.9,0.0702
+Random Forest Regressor,"max_depth=16, min_samples_leaf=5, nén y_train=có",16.14,33.47,0.1224,86.3,0.148
+XGBoost (squared error),"max_depth=6, lr=0.03, số cây=573, nén y_train=có",15.52,33.56,0.1178,86.6,0.1794
+XGBoost (absolute error),"max_depth=6, lr=0.03, số cây=686, nén y_train=không",14.76,31.82,0.2066,87.3,0.3559

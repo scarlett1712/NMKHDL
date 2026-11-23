@@ -1,119 +1,112 @@
 ========================================================================================
-HỆ THỐNG DỰ BÁO NGUY CƠ TRỄ CHUYẾN BAY THƯƠNG MẠI (FLIGHT DELAY PREDICTION PIPELINE)
-BÀI TẬP LỚN MÔN HỌC: KHOA HỌC DỮ LIỆU (IT4930 / IT4142)
+DỰ BÁO TRỄ CHUYẾN BAY THƯƠNG MẠI TỪ DỮ LIỆU THỰC TẾ (FLIGHT DELAY PREDICTION)
+BÀI TẬP LỚN MÔN HỌC: NHẬP MÔN KHOA HỌC DỮ LIỆU (IT4930 / IT4142)
 TRƯỜNG CÔNG NGHỆ THÔNG TIN VÀ TRUYỀN THÔNG - ĐẠI HỌC BÁCH KHOA HÀ NỘI (SoICT - HUST)
 ========================================================================================
 
 1. GIỚI THIỆU CHUNG
-Dự án xây dựng hệ thống dự báo nguy cơ trễ chuyến bay (delay) hoàn chỉnh dựa trên 100% dữ liệu
-quan sát thực tế từ 50,000 chuyến bay thương mại (Cục Thống kê Giao thông Vận tải Hoa Kỳ - BTS)
-kết nối qua 3 trung tâm hàng không nhộn nhịp nhất: John F. Kennedy (JFK), Newark Liberty (EWR),
-LaGuardia (LGA) kết hợp chuỗi dữ liệu khí tượng trạm quan trắc quốc gia NOAA.
+Dự án dự báo số phút trễ cất cánh và cảnh báo nguy cơ trễ >= 30 phút cho 50,000 chuyến bay
+thương mại thực tế năm 2013 khởi hành từ 3 sân bay New York (JFK, EWR, LGA).
 
-Dự án được hoàn thành toàn diện qua các giai đoạn chuẩn mực:
-- Thu thập và tích hợp dữ liệu đa nguồn qua kiến trúc Mediated Schema & Wrappers.
-- Xây dựng Web Crawler (BeautifulSoup) cào thông tin đường bay và đội tàu bay thương mại.
-- Làm sạch dữ liệu, xử lý ngoại lai trễ chuyến theo dải phân vị 1.5xIQR trên Train (No Data Leakage).
-- Tính toán đầy đủ các chỉ số thống kê mô tả đơn biến (Mean, Median, Mode, Variance, Std, Skewness, Kurtosis).
-- Trích xuất đặc trưng chuỗi thời gian: Lags mạng bay, Rolling 3h, Cyclical sin/cos encoding, K-Means clustering.
-- Trực quan hóa 11 biểu đồ EDA chuyên sâu: Run Sequence Plot, Lag Plot tự tương quan (r=0.292), Heatmap 24x7,
-  Correlation Heatmap, Parallel Coordinates, Histogram & KDE, Boxplot, Violin Plot, PCA 2D, K-Means Elbow.
-- Huấn luyện 7 mô hình máy học: 2 Baseline đối chứng (Zero-Rule & Naïve Persistence), Linear Regression,
-  Ridge (L2 Regularization), Lasso (L1 Regularization), Random Forest và XGBoost Regressor/Classifier.
-- Thực nghiệm chuyên sâu về hiện tượng Overfitting trên tập Train và Validation.
-- Triển khai ứng dụng Web Dashboard Bản đồ Radar tương tác (Streamlit & Folium).
+Ba nguồn dữ liệu:
+- Chuyến bay: gói nycflights13 (Wickham), trích từ US Bureau of Transportation Statistics.
+- Thời tiết theo giờ tại 3 sân bay: bảng weather của nycflights13 (trạm ASOS / NOAA),
+  tải qua HTTP từ kho Rdatasets.
+- Quy mô sân bay đến: Web Crawler (requests + BeautifulSoup) cào trang Wikipedia
+  "List of the busiest airports in the United States" (số liệu FAA).
+
+Các bước chính:
+- Tích hợp 3 nguồn qua Wrappers và Mediated Schema.
+- Chia dữ liệu tuần tự theo thời gian Train 70% / Validation 15% / Test 15% (src/preprocessing/splits.py).
+  Median điền khuyết, K-Means, StandardScaler, biên IQR chỉ được fit trên Train.
+- Loại air_time (thời gian bay thực tế, chỉ biết sau khi hạ cánh) để tránh rò rỉ dữ liệu.
+- Thống kê mô tả đơn biến; 11 biểu đồ EDA (Run Sequence, Lag Plot, Heatmap 24x7, Correlation,
+  Parallel Coordinates, Mùa vụ & quy mô sân bay, Histogram, Boxplot, Violin, PCA, K-Means Elbow).
+- Mô hình hồi quy: 2 baseline, Linear, Ridge (L2), Lasso (L1), Random Forest, XGBoost
+  (squared error và absolute error). Siêu tham số chọn trên Validation.
+- Mô hình phân loại trễ >= 30 phút: XGBClassifier cân bằng lớp, ngưỡng chọn trên Validation,
+  xác suất hiệu chỉnh bằng Isotonic Regression.
+- Ứng dụng Web Dashboard Streamlit + bản đồ Folium.
+
+Kết quả trên tập Test (7,500 chuyến, 06/11 - 31/12/2013):
+- Hồi quy: XGBoost (absolute error) MAE = 14.76 phút, R2 = 0.207 (baseline hằng số: MAE 16.63).
+- Phân loại: XGBClassifier F1 = 0.463, ROC-AUC = 0.792 (baseline persistence: F1 0.312).
+Chi tiết trong docs/figures/*.csv và docs/BAO_CAO_BAI_TAP_LON.md.
 
 ----------------------------------------------------------------------------------------
-2. CẤU TRÚC THƯ MỤC DỰ ÁN
+2. CẤU TRÚC THƯ MỤC
 ----------------------------------------------------------------------------------------
-KHDL/
-│
+NMKHDL/
 ├── data/
-│   ├── raw/                              # Dữ liệu thô thực tế thu thập từ kho hàng không & NOAA
-│   │   ├── nyc_flights_raw.csv           # 336,776 chuyến bay thương mại gốc
-│   │   ├── nyc_weather_raw.csv           # 8,719 giờ thời tiết trạm quan trắc NOAA
-│   │   ├── flights_stream.csv            # 50,000 chuyến bay theo chuỗi thời gian
-│   │   ├── weather_stream.csv            # Chuỗi thời tiết chuyển đổi đơn vị metric
-│   │   ├── crawled_airlines_info.csv     # Dữ liệu Web Crawler cào hãng bay
-│   │   └── crawled_route_metadata.csv    # Dữ liệu Web Crawler cào mạng bay
-│   └── processed/                        # Dữ liệu qua tích hợp, làm sạch và tạo đặc trưng
-│       ├── integrated_flight_weather.csv # Dữ liệu tích hợp qua Mediated Schema
-│       ├── cleaned_flight_data.csv       # Dữ liệu sau xử lý khuyết & ngoại lai
-│       └── featured_flight_dataset.csv   # Tập đặc trưng 66 chiều hoàn chỉnh
-│
-├── notebooks/                            # Jupyter Notebook minh họa toàn bộ pipeline (có outputs)
+│   ├── raw/
+│   │   ├── nyc_flights_raw.csv               # 336,776 chuyến bay gốc (nycflights13)
+│   │   ├── nyc_weather_raw.csv               # 26,115 quan trắc thời tiết theo giờ (3 sân bay)
+│   │   ├── flights_stream.csv                # 50,000 chuyến bay đã lấy mẫu
+│   │   ├── weather_stream.csv                # Thời tiết đã đổi đơn vị mét
+│   │   ├── wiki_busiest_us_airports.html     # Trang Wikipedia gốc do crawler tải về
+│   │   └── crawled_us_airport_traffic.csv    # 65 sân bay hub cào được
+│   └── processed/
+│       ├── integrated_flight_weather.csv     # Sau tích hợp 3 nguồn
+│       ├── cleaned_flight_data.csv           # Sau làm sạch
+│       └── featured_flight_dataset.csv       # Sau tạo đặc trưng (51 đặc trưng đầu vào mô hình)
+├── notebooks/
 │   └── Flight_Delay_Prediction_Pipeline.ipynb
-│
-├── src/                                  # Toàn bộ mã nguồn cốt lõi (Core pipeline)
-│   ├── data_collection/                  # Thu thập dữ liệu & Web Crawler
-│   │   ├── fetch_flights.py
-│   │   ├── fetch_weather_api.py
-│   │   └── web_crawler.py
-│   ├── data_integration/                 # Kiến trúc tích hợp Mediated Schema & Wrappers
-│   │   └── integrate.py
-│   ├── preprocessing/                    # Làm sạch 1.5xIQR, thống kê đơn biến, tạo đặc trưng
-│   │   ├── cleaner.py
-│   │   └── feature_engineering.py
-│   ├── visualization/                    # Đồ thị trực quan hóa dữ liệu EDA
-│   │   └── eda_plots.py
-│   └── models/                           # Huấn luyện mô hình, kiểm soát Overfitting, lưu model
-│       └── train_evaluate.py
-│
-├── models_saved/                         # Trọng số mô hình và scaler đã đóng gói (joblib)
-│   ├── best_model_xgb.pkl                # Mô hình hồi quy tối ưu XGBoost
-│   ├── delay_classifier.pkl              # Mô hình phân loại trễ >= 30p
-│   ├── model_rf.pkl                      # Random Forest
-│   ├── model_ridge.pkl                   # Ridge Regression (L2)
-│   ├── model_lasso.pkl                   # Lasso Regression (L1)
-│   ├── kmeans_model.pkl                  # K-Means clustering (k=3)
-│   ├── kmeans_scaler.pkl                 # Scaler cho K-Means
-│   ├── scaler.pkl                        # StandardScaler cho tập Train
-│   └── feature_cols.pkl                  # Danh sách thuộc tính
-│
-├── app/                                  # Ứng dụng Web Dashboard tương tác Streamlit
-│   └── app.py
-│
-├── docs/                                 # Báo cáo kỹ thuật và hình ảnh trích xuất
-│   ├── figures/                          # Toàn bộ hình ảnh biểu đồ EDA và thí nghiệm ML
-│   └── BAO_CAO_BAI_TAP_LON.md            # Báo cáo kỹ thuật chi tiết theo rubric SoICT
-│
-├── requirements.txt                      # Danh sách các thư viện phụ thuộc
-├── readme.txt                            # Hướng dẫn chi tiết
+├── src/
+│   ├── data_collection/     fetch_flights.py, fetch_weather_api.py, web_crawler.py
+│   ├── data_integration/    integrate.py
+│   ├── preprocessing/       splits.py, cleaner.py, feature_engineering.py
+│   ├── visualization/       eda_plots.py
+│   └── models/              train_evaluate.py
+├── models_saved/            Mô hình, scaler, K-Means, bộ hiệu chỉnh xác suất (joblib)
+├── app/app.py               Web Dashboard Streamlit
+├── docs/
+│   ├── figures/             Biểu đồ .png và bảng kết quả .csv
+│   └── BAO_CAO_BAI_TAP_LON.md
+├── requirements.txt
+├── readme.txt
 └── README.md
 
 ----------------------------------------------------------------------------------------
-3. HƯỚNG DẪN CÀI ĐẶT MÔI TRƯỜNG
+3. CÀI ĐẶT
 ----------------------------------------------------------------------------------------
-Bước 1: Mở Terminal / PowerShell tại thư mục gốc của dự án.
-Bước 2: Cài đặt các thư viện cần thiết bằng lệnh pip:
+Mở Terminal / PowerShell tại thư mục gốc dự án và chạy:
     pip install -r requirements.txt
 
-----------------------------------------------------------------------------------------
-4. QUY TRÌNH CHẠY HỆ THỐNG TỪNG BƯỚC (END-TO-END PIPELINE)
-----------------------------------------------------------------------------------------
-Bước 1: Chuẩn bị luồng dữ liệu chuyến bay thực tế & Web Crawler:
-    python src/data_collection/fetch_flights.py
-    python src/data_collection/fetch_weather_api.py
-    python src/data_collection/web_crawler.py
+Thư viện chính: pandas, numpy, scipy, scikit-learn, xgboost, joblib, matplotlib, seaborn,
+requests, beautifulsoup4, streamlit, folium, streamlit-folium.
+Windows PowerShell nên đặt:  $env:PYTHONIOENCODING="utf-8"
 
-Bước 2: Tích hợp dữ liệu qua Mediated Schema & Wrappers:
+----------------------------------------------------------------------------------------
+4. CHẠY PIPELINE TỪNG BƯỚC
+----------------------------------------------------------------------------------------
+Bước 1: Thu thập dữ liệu
+    python src/data_collection/fetch_flights.py
+    python src/data_collection/fetch_weather_api.py      (thêm --refresh để tải lại thời tiết)
+    python src/data_collection/web_crawler.py            (thêm --offline để dùng HTML đã lưu)
+
+Bước 2: Tích hợp dữ liệu
     python src/data_integration/integrate.py
 
-Bước 3: Làm sạch dữ liệu chống rò rỉ & trích xuất đặc trưng:
+Bước 3: Làm sạch và tạo đặc trưng
     python src/preprocessing/cleaner.py
     python src/preprocessing/feature_engineering.py
 
-Bước 4: Xuất toàn bộ 11 biểu đồ trực quan hóa dữ liệu EDA:
+Bước 4: Sinh 11 biểu đồ EDA
     python src/visualization/eda_plots.py
 
-Bước 5: Huấn luyện mô hình, kiểm soát Overfitting và xuất bảng đối sánh:
+Bước 5: Huấn luyện, chọn tham số trên Validation, đánh giá trên Test
     python src/models/train_evaluate.py
 
-----------------------------------------------------------------------------------------
-5. KHỞI CHẠY ỨNG DỤNG WEB DASHBOARD
-----------------------------------------------------------------------------------------
-Khởi chạy ứng dụng Streamlit:
-    streamlit run app/app.py
+Hoặc chạy toàn bộ trong notebooks/Flight_Delay_Prediction_Pipeline.ipynb.
 
-Mở trình duyệt tại địa chỉ: http://localhost:8501
+----------------------------------------------------------------------------------------
+5. WEB DASHBOARD
+----------------------------------------------------------------------------------------
+    streamlit run app/app.py
+Mở trình duyệt tại http://localhost:8501
+- Tab 1: chọn hãng, tuyến, ngày, giờ bay và kịch bản thời tiết (hoặc lấy dự báo Open-Meteo);
+  app hiển thị dự báo trễ, xác suất trễ >= 30 phút, cảnh báo và thống kê lịch sử của các nhóm
+  chuyến bay tương tự.
+- Tab 2: toàn bộ biểu đồ EDA, bảng kết quả hồi quy / phân loại, hiệu chỉnh xác suất, Overfitting.
+Lưu ý: mô hình học từ dữ liệu 2013; thời tiết trực tiếp chỉ dùng để minh họa.
 ========================================================================================

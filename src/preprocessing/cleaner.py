@@ -8,10 +8,14 @@ Giai đoạn B: Làm sạch dữ liệu & Phân tích đơn biến (Data Cleanin
 """
 
 import os
+import sys
 import pandas as pd
 import numpy as np
 from scipy import stats
 from typing import Dict, Any, Tuple, Union
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from src.preprocessing.splits import sort_chronologically, train_mask
 
 class DataCleaner:
     def __init__(self, data_path: str = "data/processed/integrated_flight_weather.csv"):
@@ -29,41 +33,51 @@ class DataCleaner:
         })
         return missing_df
 
-    def handle_missing_values(self, train_medians: Dict[str, Any] = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    WEATHER_NUMERIC_COLS = ['origin_temp_c', 'origin_wind_kmh', 'origin_gusts_kmh',
+                            'origin_rain_mm', 'origin_visibility_km', 'humid', 'pressure']
+
+    def handle_missing_values(self) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """
-        Xử lý giá trị khuyết (Task B1) trên dữ liệu quan trắc thật:
-        - Các giờ khuyết trạm khí tượng được điền theo median của từng sân bay và từng tháng.
-        - air_time khuyết được điền theo median của từng chặng bay (origin -> dest).
+        Xử lý giá trị khuyết (Task B1) - CHỐNG RÒ RỈ: mọi median chỉ tính trên tập Train.
+        - Cột khí tượng: điền theo median (sân bay, tháng) của Train; nếu tháng đó không có trong Train
+          (Test rơi vào tháng 11-12), dùng median theo sân bay của Train; cuối cùng là median toàn Train.
+        - Lượng mưa khuyết = 0 (trạm không ghi nhận mưa).
+        - air_time (thời gian bay THỰC TẾ, chỉ biết sau khi hạ cánh) bị loại khỏi dữ liệu vì gây rò rỉ
+          thông tin tương lai khi dự báo trễ cất cánh.
         """
-        df = self.df.copy()
-        if train_medians is None:
-            train_medians = {
-                'origin_temp_c': float(df['origin_temp_c'].median() if pd.notna(df['origin_temp_c'].median()) else 15.0),
-                'origin_wind_kmh': float(df['origin_wind_kmh'].median() if pd.notna(df['origin_wind_kmh'].median()) else 15.0),
-                'origin_gusts_kmh': float(df['origin_gusts_kmh'].median() if pd.notna(df['origin_gusts_kmh'].median()) else 20.0),
-                'origin_rain_mm': 0.0,
-                'origin_visibility_km': 16.0,
-                'humid': float(df['humid'].median() if 'humid' in df.columns and pd.notna(df['humid'].median()) else 60.0),
-                'pressure': float(df['pressure'].median() if 'pressure' in df.columns and pd.notna(df['pressure'].median()) else 1015.0),
-                'air_time': float(df['air_time'].median() if pd.notna(df['air_time'].median()) else 150.0)
-            }
+        df = sort_chronologically(self.df)
+        is_train = train_mask(df)
+        train = df[is_train]
 
-        # Điền các cột khí tượng
-        for col in ['origin_temp_c', 'origin_wind_kmh', 'origin_gusts_kmh', 'humid', 'pressure']:
-            if col in df.columns:
-                df[col] = df.groupby(['origin', 'month'])[col].transform(lambda x: x.fillna(x.median()))
-                df[col] = df[col].fillna(train_medians.get(col, 15.0))
+        fill_stats = {'by_origin_month': {}, 'by_origin': {}, 'global': {}}
+        for col in self.WEATHER_NUMERIC_COLS:
+            if col not in df.columns:
+                continue
+            if col == 'origin_rain_mm':
+                df[col] = df[col].fillna(0.0)
+                continue
+            by_om = train.groupby(['origin', 'month'])[col].median()
+            by_o = train.groupby('origin')[col].median()
+            glob = float(train[col].median())
+            fill_stats['by_origin_month'][col] = by_om.to_dict()
+            fill_stats['by_origin'][col] = by_o.to_dict()
+            fill_stats['global'][col] = glob
 
-        df['origin_rain_mm'] = df['origin_rain_mm'].fillna(0.0)
-        df['origin_visibility_km'] = df['origin_visibility_km'].fillna(train_medians['origin_visibility_km'])
-        df['origin_weather'] = df['origin_weather'].fillna('Quang đãng')
+            na = df[col].isna()
+            if na.any():
+                keys = list(zip(df.loc[na, 'origin'], df.loc[na, 'month']))
+                filled = pd.Series([by_om.get(k, np.nan) for k in keys], index=df.index[na])
+                filled = filled.fillna(df.loc[na, 'origin'].map(by_o)).fillna(glob)
+                df.loc[na, col] = filled
 
-        if 'air_time' in df.columns:
-            df['air_time'] = df.groupby(['origin', 'dest'])['air_time'].transform(lambda x: x.fillna(x.median()))
-            df['air_time'] = df['air_time'].fillna(train_medians['air_time'])
+        if 'origin_weather' in df.columns:
+            df['origin_weather'] = df['origin_weather'].fillna('Quang đãng')
+
+        df = df.drop(columns=['air_time'], errors='ignore')
 
         self.df = df
-        return df, train_medians
+        self.fill_stats = fill_stats
+        return df, fill_stats
 
     @staticmethod
     def compute_iqr_bounds(series: pd.Series, multiplier: float = 1.5) -> Dict[str, float]:

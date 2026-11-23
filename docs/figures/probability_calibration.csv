@@ -1,0 +1,3 @@
+Xác suất,Trung bình dự báo,Tỷ lệ trễ thực tế,Brier score
+Điểm thô XGBClassifier (scale_pos_weight),0.3379,0.1451,0.1449
+Sau hiệu chỉnh Isotonic (fit trên Val),0.1216,0.1451,0.1011
