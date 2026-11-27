@@ -347,7 +347,8 @@ PREDICTS_MEDIAN = "absolute error" in selected_model_name
 # ----------------- 6. HÀM DỰ ĐOÁN DELAY -----------------
 def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
                          hour: int, dow: int, month: int,
-                         temp_c: float, rain_mm: float, wind_kmh: float, gusts_kmh: float):
+                         temp_c: float, rain_mm: float, wind_kmh: float, gusts_kmh: float,
+                         weather_code: int = 0):
     feature_cols = artifacts['features']
     inp = {c: 0.0 for c in feature_cols}
     
@@ -385,7 +386,14 @@ def predict_flight_delay(airline: str, origin: str, dest: str, aircraft: str,
     inp['origin_rain_mm'] = rain_mm
     inp['origin_wind_kmh'] = wind_kmh
     inp['origin_gusts_kmh'] = gusts_kmh
-    inp['origin_visibility_km'] = 16.0 if rain_mm == 0 else (4.0 if rain_mm > 5 else 10.0)
+    if weather_code in (45, 48):
+        inp['origin_visibility_km'] = 0.8
+    elif rain_mm > 5:
+        inp['origin_visibility_km'] = 4.0
+    elif rain_mm > 0.1:
+        inp['origin_visibility_km'] = 10.0
+    else:
+        inp['origin_visibility_km'] = 16.0
     inp['humid'] = 60.0
     inp['pressure'] = 1015.0
     inp['is_rain'] = 1 if rain_mm > 0.1 else 0
@@ -438,7 +446,8 @@ pred_minutes, delay_prob_pct, severe_alert = predict_flight_delay(
     temp_c=origin_temp,
     rain_mm=origin_rain,
     wind_kmh=origin_wind,
-    gusts_kmh=origin_gusts
+    gusts_kmh=origin_gusts,
+    weather_code=origin_weather_code
 )
 
 # ----------------- 7. GIAO DIỆN CHÍNH 2 PHÂN HỆ -----------------
